@@ -1,6 +1,6 @@
-### Lorde dos Mistérios – Crawler e Gerador de EPUB
+### Book Crawler Creator – Crawler e Gerador de EPUB
 
-Projeto em Python 3.11+ para coletar capítulos do romance “Lorde dos Mistérios” do site `illusia.com.br`, higienizar o HTML, normalizar em JSON e empacotar livros em EPUB prontos para Kindle.
+Projeto em Python 3.11+ para coletar capítulos de romances da web, higienizar o HTML, normalizar em JSON e empacotar livros em EPUB prontos para Kindle. Inclui presets para “Lorde dos Mistérios” (LOM) e modo de URL customizada (template com {id}).
 
 ## Sumário
 - **Objetivos**
@@ -52,7 +52,7 @@ py -m venv .venv
 ## Uso (CLI)
 Todos os exemplos assumem a venv ativada acima.
 
-- **Padrão (1–1394, gera EPUBs em ./build)**:
+- **LOM completo (1–1394, gera EPUBs em ./build)**:
 ```powershell
 .\.venv\Scripts\python.exe -m ldm_kindler.cli --start 1 --end 1394 --out .\build
 
@@ -89,6 +89,15 @@ Todos os exemplos assumem a venv ativada acima.
   --out .\build
 ```
 
+## Uso (menu .bat)
+- Execute o atalho com menu:
+```powershell
+./run_book.bat
+```
+- Escolha a fonte:
+  - LOM (presets 1–10) → selecione um livro ou “Todos”/“Custom”.
+  - URL customizada → informe URL template com {id}, título da série, autor e faixa.
+
 - **Saídas**:
   - **EPUBs**: `./build`
   - **Cache HTML**: `ldm_kindler/cache/html/`
@@ -121,6 +130,12 @@ Rode a suíte (regex/clean/epub):
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
 ```
+
+## Troubleshooting
+- "Got unexpected extra argument (run)" ao usar -m: chame sem o subcomando, ex.: `-m ldm_kindler.cli --range-str 1-50`.
+- `ModuleNotFoundError: ldm_kindler` ao rodar arquivo direto: prefira `-m ldm_kindler.cli` ou ajuste `PYTHONPATH`.
+- Lentidão/bloqueios: aumente `--min-delay/--max-delay` e mantenha `--max-retries`.
+- Windows PowerShell: se aparecer erro com `&&`, use `;` para encadear comandos.
 
 ## Estrutura de pastas
 ```
