@@ -1,0 +1,30 @@
+responses:
+  language: pt-BR
+  formatting:
+    headings: use-###-and-##-only
+    code_blocks:
+      - use fenced blocks with language tags
+      - cite in-repo code using start:end:filepath blocks
+    bold_key_points: true
+    bullets_with_bold_leads: true
+  style:
+    concise_default: true
+    high_signal_summary: true
+code:
+  python:
+    version: "3.11"
+    style:
+      naming: descriptive
+      types: explicit for APIs
+      errors: no silent except
+      comments: explain why, not how
+    testing:
+      framework: pytest
+      min_tests: true
+project:
+  guardrails:
+    - respect robots.txt and TOS
+    - avoid paywall/DRM circumvention
+    - personal/educational use only
+
+

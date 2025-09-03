@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+*.egg
+.cache/
+
+# Virtualenv
+.venv/
+venv/
+ENV/
+env/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build / dist
+build/
+dist/
+
+# Local caches do projeto
+ldm_kindler/cache/html/
+ldm_kindler/cache/json/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
