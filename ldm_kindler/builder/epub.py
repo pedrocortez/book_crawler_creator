@@ -26,7 +26,13 @@ class EpubBuilder:
         self.series_title = series_title or "Lorde dos Mistérios"
         self.author = author or "Cuttlefish That Loves Diving (trad. fã)"
 
-    def build_epub(self, chapters: List[Dict[str, Any]], book: Dict[str, Any], cover_bytes: bytes | None = None) -> Path:
+    def build_epub(
+        self,
+        chapters: List[Dict[str, Any]],
+        book: Dict[str, Any],
+        cover_bytes: bytes | None = None,
+        override_filename: str | None = None,
+    ) -> Path:
         book_id = str(uuid.uuid4())
         title = f"{self.series_title} – Livro {book['book']}: {book['title']}"
 
@@ -62,11 +68,14 @@ class EpubBuilder:
         book_epub.add_item(epub.EpubNcx())
         book_epub.add_item(epub.EpubNav())
 
-        # Se o título da série for personalizado, reflete no nome do arquivo
-        if self.series_title != "Lorde dos Mistérios":
-            filename = output_filename(self.series_title, book)
+        if override_filename:
+            filename = override_filename
         else:
-            filename = output_filename_for_book(book)
+            # Se o título da série for personalizado, reflete no nome do arquivo
+            if self.series_title != "Lorde dos Mistérios":
+                filename = output_filename(self.series_title, book)
+            else:
+                filename = output_filename_for_book(book)
         out_path = self.out_dir / filename
         epub.write_epub(str(out_path), book_epub)
         return out_path

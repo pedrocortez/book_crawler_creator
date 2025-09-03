@@ -15,6 +15,7 @@ from ldm_kindler.crawler.parse import parse_chapter
 from ldm_kindler.crawler.clean import clean_html
 from ldm_kindler.crawler.persist import CacheStore
 from ldm_kindler.builder.epub import EpubBuilder
+from ldm_kindler.constants import output_filename_single
 
 
 app = typer.Typer(help="Crawler e gerador de EPUB para 'Lorde dos Mistérios'.")
@@ -120,7 +121,8 @@ def run(
             "end": max(by_id),
         }
         group = [by_id[cid] for cid in sorted(by_id)]
-        typer.echo(f"[INFO] build EPUB unico custom range={book_meta['start']}-{book_meta['end']}")
+        filename = output_filename_single(series_title or "Livro", book_meta['start'], book_meta['end'])
+        typer.echo(f"[INFO] build EPUB unico custom range={book_meta['start']}-{book_meta['end']} -> {filename}")
         cover_bytes = None
         if cover_url:
             try:
@@ -129,7 +131,7 @@ def run(
                 cover_bytes = r.content
             except Exception as e:
                 typer.echo(json.dumps({"level": "WARN", "status": "cover_fetch_failed", "error": str(e)}))
-        builder.build_epub(group, book_meta, cover_bytes=cover_bytes)
+        builder.build_epub(group, book_meta, cover_bytes=cover_bytes, override_filename=filename)
         typer.echo("[OK]   EPUB custom gerado")
     else:
         # Preset LOM: quebrar por BOOKS
