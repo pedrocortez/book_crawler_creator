@@ -34,31 +34,59 @@ echo  [8] Livro 08 – Resonance (681-849)
 echo  [9] Livro 09 – Mystery Pryer (850-1029)
 echo  [10] Livro 10 – Apocalypse (1030-1394)
 echo  [C] Custom (inserir faixa ex.: 441-480)
-echo  [A] Todos (6 a 10)
+echo  [A] Todos (1 a 10)
 echo  [S] Sair
 echo =====================================================================
 set /p choice=Escolha uma opcao: 
 
-if /I "%choice%"=="1" set RANGE=1-65& set BOOK=01& set NAME=Clown& goto run
-if /I "%choice%"=="2" set RANGE=66-141& set BOOK=02& set NAME=Magician& goto run
-if /I "%choice%"=="3" set RANGE=142-222& set BOOK=03& set NAME=Seer& goto run
-if /I "%choice%"=="4" set RANGE=223-322& set BOOK=04& set NAME=Hero& goto run
-if /I "%choice%"=="5" set RANGE=323-390& set BOOK=05& set NAME=Bizarro_Sorcerer& goto run
-if /I "%choice%"=="6" set RANGE=391-533& set BOOK=06& set NAME=Hanged_Man& goto run
-if /I "%choice%"=="7" set RANGE=534-680& set BOOK=07& set NAME=Fool& goto run
-if /I "%choice%"=="8" set RANGE=681-849& set BOOK=08& set NAME=Resonance& goto run
-if /I "%choice%"=="9" set RANGE=850-1029& set BOOK=09& set NAME=Mystery_Pryer& goto run
-if /I "%choice%"=="10" set RANGE=1030-1394& set BOOK=10& set NAME=Apocalypse& goto run
-if /I "%choice%"=="A" goto run_all
+if /I "%choice%"=="1" set RANGE=1-65& set BOOK=01& set NAME=Clown& goto ask_adv
+if /I "%choice%"=="2" set RANGE=66-141& set BOOK=02& set NAME=Magician& goto ask_adv
+if /I "%choice%"=="3" set RANGE=142-222& set BOOK=03& set NAME=Seer& goto ask_adv
+if /I "%choice%"=="4" set RANGE=223-322& set BOOK=04& set NAME=Hero& goto ask_adv
+if /I "%choice%"=="5" set RANGE=323-390& set BOOK=05& set NAME=Bizarro_Sorcerer& goto ask_adv
+if /I "%choice%"=="6" set RANGE=391-533& set BOOK=06& set NAME=Hanged_Man& goto ask_adv
+if /I "%choice%"=="7" set RANGE=534-680& set BOOK=07& set NAME=Fool& goto ask_adv
+if /I "%choice%"=="8" set RANGE=681-849& set BOOK=08& set NAME=Resonance& goto ask_adv
+if /I "%choice%"=="9" set RANGE=850-1029& set BOOK=09& set NAME=Mystery_Pryer& goto ask_adv
+if /I "%choice%"=="10" set RANGE=1030-1394& set BOOK=10& set NAME=Apocalypse& goto ask_adv
+if /I "%choice%"=="A" goto ask_adv_all
 if /I "%choice%"=="C" goto custom
 if /I "%choice%"=="S" goto end
 
 echo Opcao invalida.
 goto menu
 
+:ask_adv
+set EXTRA=
+echo.
+set /p ADV=Definir opcoes avancadas (URL template/Serie/Autor)? (S/N): 
+if /I "%ADV%"=="S" (
+  set /p URLT=URL template (com {id}, opcional): 
+  set /p SERIES=Titulo da serie (opcional): 
+  set /p AUTHOR=Autor (opcional): 
+)
+if not "%URLT%"=="" set EXTRA=!EXTRA! --url-template "!URLT!"
+if not "%SERIES%"=="" set EXTRA=!EXTRA! --series-title "!SERIES!"
+if not "%AUTHOR%"=="" set EXTRA=!EXTRA! --author "!AUTHOR!"
+goto run
+
+:ask_adv_all
+set EXTRA=
+echo.
+set /p ADV=Definir opcoes avancadas (URL template/Serie/Autor)? (S/N): 
+if /I "%ADV%"=="S" (
+  set /p URLT=URL template (com {id}, opcional): 
+  set /p SERIES=Titulo da serie (opcional): 
+  set /p AUTHOR=Autor (opcional): 
+)
+if not "%URLT%"=="" set EXTRA=!EXTRA! --url-template "!URLT!"
+if not "%SERIES%"=="" set EXTRA=!EXTRA! --series-title "!SERIES!"
+if not "%AUTHOR%"=="" set EXTRA=!EXTRA! --author "!AUTHOR!"
+goto run_all
+
 :run
 echo [INFO] Gerando Livro !BOOK! (!RANGE!)...
-.\.venv\Scripts\python.exe -m ldm_kindler.cli --range-str !RANGE! --out .\build --min-delay 2 --max-delay 5 --max-retries 4
+.\.venv\Scripts\python.exe -m ldm_kindler.cli --range-str !RANGE! --out .\build --min-delay 2 --max-delay 5 --max-retries 4 !EXTRA!
 if %ERRORLEVEL% neq 0 (
   echo [ERRO] Falha ao gerar o livro !BOOK! (!RANGE!).
   goto end
@@ -67,24 +95,18 @@ echo [OK] Concluido. Verifique .\build\
 
 goto end
 
-:: custom range
 :custom
 set /p RANGE=Informe a faixa (ex.: 441-480): 
 if "%RANGE%"=="" (
   echo Faixa invalida.
   goto menu
 )
-echo [INFO] Gerando faixa personalizada %RANGE%...
-.\.venv\Scripts\python.exe -m ldm_kindler.cli --range-str %RANGE% --out .\build --min-delay 2 --max-delay 5 --max-retries 4
-if %ERRORLEVEL% neq 0 (
-  echo [ERRO] Falha ao processar %RANGE%.
-)
-goto end
+goto ask_adv
 
 :run_all
 for %%R in (1-65 66-141 142-222 223-322 323-390 391-533 534-680 681-849 850-1029 1030-1394) do (
   echo [INFO] Gerando faixa %%R...
-  .\.venv\Scripts\python.exe -m ldm_kindler.cli --range-str %%R --out .\build --min-delay 2 --max-delay 5 --max-retries 4
+  .\.venv\Scripts\python.exe -m ldm_kindler.cli --range-str %%R --out .\build --min-delay 2 --max-delay 5 --max-retries 4 !EXTRA!
   if !ERRORLEVEL! neq 0 (
     echo [ERRO] Falha ao processar %%R. Encerrando.
     goto end
