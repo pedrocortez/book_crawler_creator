@@ -79,6 +79,16 @@ Todos os exemplos assumem a venv ativada acima.
 .\.venv\Scripts\python.exe -m ldm_kindler.cli --min-delay 2 --max-delay 5 --max-retries 4
 ```
 
+- **Origem dinâmica (URL template, série e autor)**:
+```powershell
+# Ex.: site diferente com capitulo-{id}
+.\.venv\Scripts\python.exe -m ldm_kindler.cli --range-str 1-50 ^
+  --url-template "https://exemplo.com/romance/capitulo-{id}" ^
+  --series-title "Minha Série" ^
+  --author "Autor Desconhecido" ^
+  --out .\build
+```
+
 - **Saídas**:
   - **EPUBs**: `./build`
   - **Cache HTML**: `ldm_kindler/cache/html/`

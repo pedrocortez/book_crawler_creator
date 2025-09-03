@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 from ebooklib import epub
 
-from ldm_kindler.constants import output_filename_for_book
+from ldm_kindler.constants import output_filename_for_book, output_filename
 from ldm_kindler.builder.cover import generate_cover_image
 
 
@@ -20,19 +20,21 @@ img { max-width: 100%; height: auto; }
 
 
 class EpubBuilder:
-    def __init__(self, out_dir: Path):
+    def __init__(self, out_dir: Path, series_title: str | None = None, author: str | None = None):
         self.out_dir = out_dir
         self.out_dir.mkdir(parents=True, exist_ok=True)
+        self.series_title = series_title or "Lorde dos Mistérios"
+        self.author = author or "Cuttlefish That Loves Diving (trad. fã)"
 
     def build_epub(self, chapters: List[Dict[str, Any]], book: Dict[str, Any]) -> Path:
         book_id = str(uuid.uuid4())
-        title = f"Lorde dos Mistérios – Livro {book['book']}: {book['title']}"
+        title = f"{self.series_title} – Livro {book['book']}: {book['title']}"
 
         book_epub = epub.EpubBook()
         book_epub.set_identifier(f"urn:uuid:{book_id}")
         book_epub.set_title(title)
         book_epub.set_language("pt-BR")
-        book_epub.add_author("Cuttlefish That Loves Diving (trad. fã)")
+        book_epub.add_author(self.author)
         book_epub.add_metadata('DC', 'publisher', 'Compilação pessoal – uso privado')
         book_epub.add_metadata('DC', 'date', datetime.utcnow().strftime('%Y-%m-%d'))
 
@@ -59,7 +61,11 @@ class EpubBuilder:
         book_epub.add_item(epub.EpubNcx())
         book_epub.add_item(epub.EpubNav())
 
-        filename = output_filename_for_book(book)
+        # Se o título da série for personalizado, reflete no nome do arquivo
+        if self.series_title != "Lorde dos Mistérios":
+            filename = output_filename(self.series_title, book)
+        else:
+            filename = output_filename_for_book(book)
         out_path = self.out_dir / filename
         epub.write_epub(str(out_path), book_epub)
         return out_path

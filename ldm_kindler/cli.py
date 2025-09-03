@@ -38,6 +38,9 @@ def run(
     out: str = typer.Option("./build", help="Diretório de saída."),
     only: Optional[str] = typer.Option(None, help="Lista de capítulos: 534,535,536"),
     range_str: Optional[str] = typer.Option(None, help="Faixa: 850-1029"),
+    url_template: Optional[str] = typer.Option(None, help="Template da URL com {id}, ex.: https://site/x/capitulo-{id}"),
+    series_title: Optional[str] = typer.Option(None, help="Título da série para metadados/arquivo."),
+    author: Optional[str] = typer.Option(None, help="Autor para metadados do EPUB."),
     min_delay: float = typer.Option(2.0, help="Delay mínimo entre requests."),
     max_delay: float = typer.Option(5.0, help="Delay máximo entre requests."),
     max_retries: int = typer.Option(4, help="Máximo de tentativas por capítulo."),
@@ -51,7 +54,7 @@ def run(
     only_list = parse_only_list(only)
 
     cache = CacheStore(base)
-    fetcher = FetchClient(min_delay=min_delay, max_delay=max_delay, max_retries=max_retries)
+    fetcher = FetchClient(min_delay=min_delay, max_delay=max_delay, max_retries=max_retries, url_template=url_template)
 
     chapter_ids: List[int]
     if only_list:
@@ -102,7 +105,7 @@ def run(
         raise typer.Exit(code=0)
 
     # Agrupamento por livros e construção dos EPUBs
-    builder = EpubBuilder(Path(out))
+    builder = EpubBuilder(Path(out), series_title=series_title, author=author)
     by_id = {c["id"]: c for c in normalized_chapters}
     for book in BOOKS:
         group = [by_id[cid] for cid in sorted(by_id) if book["start"] <= cid <= book["end"] and cid in by_id]

@@ -37,12 +37,15 @@ class FetchClient:
     min_delay: float = 2.0
     max_delay: float = 5.0
     max_retries: int = 4
+    url_template: str | None = None
 
     def __post_init__(self):
         self.session = ThrottleSession(self.min_delay, self.max_delay)
         self._robots = None
 
     def compose_url(self, chapter_id: int) -> str:
+        if self.url_template:
+            return self.url_template.format(id=chapter_id)
         return chapter_url(chapter_id)
 
     def _get_robots(self, url: str) -> robotparser.RobotFileParser:
