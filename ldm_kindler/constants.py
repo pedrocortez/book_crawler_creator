@@ -11,15 +11,15 @@ BASE_URL = (
 
 
 BOOKS = [
+    {"book": 1, "title": "Clown (Palhaço)", "start": 1, "end": 65},
+    {"book": 2, "title": "Magician (Mago)", "start": 66, "end": 141},
+    {"book": 3, "title": "Seer (Vidente)", "start": 142, "end": 222},
+    {"book": 4, "title": "Hero (Herói)", "start": 223, "end": 322},
+    {"book": 5, "title": "Bizarro Sorcerer (Feiticeiro Bizarro)", "start": 323, "end": 390},
     {"book": 6, "title": "Hanged Man (Enforcado)", "start": 391, "end": 533},
     {"book": 7, "title": "Fool (O Louco)", "start": 534, "end": 680},
     {"book": 8, "title": "Resonance (Ressonância)", "start": 681, "end": 849},
-    {
-        "book": 9,
-        "title": "Mystery Pryer (Explorador do Mistério)",
-        "start": 850,
-        "end": 1029,
-    },
+    {"book": 9, "title": "Mystery Pryer (Explorador do Mistério)", "start": 850, "end": 1029},
     {"book": 10, "title": "Apocalypse (Apocalipse)", "start": 1030, "end": 1394},
 ]
 
