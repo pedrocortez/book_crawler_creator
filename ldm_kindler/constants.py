@@ -11,6 +11,7 @@ BASE_URL = (
 
 
 BOOKS = [
+    {"book": 6, "title": "Hanged Man (Enforcado)", "start": 391, "end": 533},
     {"book": 7, "title": "Fool (O Louco)", "start": 534, "end": 680},
     {"book": 8, "title": "Resonance (Ressonância)", "start": 681, "end": 849},
     {
