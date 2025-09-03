@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List, Optional
 
 import typer
+from rich.progress import Progress
 
 from ldm_kindler.constants import BOOKS, ensure_dirs
 from ldm_kindler.crawler.fetch import FetchClient
@@ -61,34 +62,40 @@ def run(
     normalized_chapters = []
     total = len(chapter_ids)
 
-    for idx, cid in enumerate(chapter_ids, start=1):
-        typer.echo(f"[INFO] ({idx}/{total}) fetch cid={cid}")
-        # Idempotência: verifica cache JSON
-        existing = cache.load_json(cid)
-        if existing is not None:
-            typer.echo(f"[INFO] ({idx}/{total}) cache hit cid={cid}")
-            normalized_chapters.append(existing)
-            continue
+    with Progress() as progress:
+        task = progress.add_task(f"Processando capítulos {chapter_ids[0]}-{chapter_ids[-1]}", total=total)
 
-        url = fetcher.compose_url(cid)
-        html = fetcher.fetch(cid, url)
+        for idx, cid in enumerate(chapter_ids, start=1):
+            typer.echo(f"[INFO] ({idx}/{total}) fetch cid={cid}")
+            # Idempotência: verifica cache JSON
+            existing = cache.load_json(cid)
+            if existing is not None:
+                typer.echo(f"[INFO] ({idx}/{total}) cache hit cid={cid}")
+                normalized_chapters.append(existing)
+                progress.advance(task)
+                continue
 
-        if html is None:
-            typer.echo(json.dumps({"level": "WARN", "chapter": cid, "status": "skip_no_html", "url": url}))
-            continue
+            url = fetcher.compose_url(cid)
+            html = fetcher.fetch(cid, url)
 
-        cache.save_html(cid, html)
+            if html is None:
+                typer.echo(json.dumps({"level": "WARN", "chapter": cid, "status": "skip_no_html", "url": url}))
+                progress.advance(task)
+                continue
 
-        typer.echo(f"[INFO] ({idx}/{total}) parse cid={cid}")
-        parsed = parse_chapter(cid, url, html)
-        typer.echo(f"[INFO] ({idx}/{total}) clean cid={cid}")
-        cleaned = clean_html(parsed)
+            cache.save_html(cid, html)
 
-        if not dry_run:
-            cache.save_json(cid, cleaned)
+            typer.echo(f"[INFO] ({idx}/{total}) parse cid={cid}")
+            parsed = parse_chapter(cid, url, html)
+            typer.echo(f"[INFO] ({idx}/{total}) clean cid={cid}")
+            cleaned = clean_html(parsed)
 
-        typer.echo(f"[OK]   ({idx}/{total}) done cid={cid}")
-        normalized_chapters.append(cleaned)
+            if not dry_run:
+                cache.save_json(cid, cleaned)
+
+            typer.echo(f"[OK]   ({idx}/{total}) done cid={cid}")
+            normalized_chapters.append(cleaned)
+            progress.advance(task)
 
     if dry_run:
         typer.echo(json.dumps({"level": "INFO", "status": "dry_run_complete", "chapters": len(normalized_chapters)}))
