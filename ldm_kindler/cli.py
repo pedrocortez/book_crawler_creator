@@ -59,11 +59,14 @@ def run(
         chapter_ids = list(range(start, end + 1))
 
     normalized_chapters = []
+    total = len(chapter_ids)
 
-    for cid in chapter_ids:
+    for idx, cid in enumerate(chapter_ids, start=1):
+        typer.echo(f"[INFO] ({idx}/{total}) fetch cid={cid}")
         # Idempotência: verifica cache JSON
         existing = cache.load_json(cid)
         if existing is not None:
+            typer.echo(f"[INFO] ({idx}/{total}) cache hit cid={cid}")
             normalized_chapters.append(existing)
             continue
 
@@ -76,12 +79,15 @@ def run(
 
         cache.save_html(cid, html)
 
+        typer.echo(f"[INFO] ({idx}/{total}) parse cid={cid}")
         parsed = parse_chapter(cid, url, html)
+        typer.echo(f"[INFO] ({idx}/{total}) clean cid={cid}")
         cleaned = clean_html(parsed)
 
         if not dry_run:
             cache.save_json(cid, cleaned)
 
+        typer.echo(f"[OK]   ({idx}/{total}) done cid={cid}")
         normalized_chapters.append(cleaned)
 
     if dry_run:
@@ -95,7 +101,9 @@ def run(
         group = [by_id[cid] for cid in sorted(by_id) if book["start"] <= cid <= book["end"] and cid in by_id]
         if not group:
             continue
+        typer.echo(f"[INFO] build EPUB livro={book['book']} range={book['start']}-{book['end']}")
         builder.build_epub(group, book)
+        typer.echo(f"[OK]   EPUB livro={book['book']} gerado")
 
 
 if __name__ == "__main__":
