@@ -28,6 +28,7 @@ echo  [2] Livro 07 – Fool (534-680)
 echo  [3] Livro 08 – Resonance (681-849)
 echo  [4] Livro 09 – Mystery Pryer (850-1029)
 echo  [5] Livro 10 – Apocalypse (1030-1394)
+echo  [C] Custom (inserir faixa ex.: 441-480)
 echo  [A] Todos (6 a 10)
 echo  [S] Sair
 echo =====================================================================
@@ -39,6 +40,7 @@ if /I "%choice%"=="3" set RANGE=681-849& set BOOK=08& set NAME=Resonance& goto r
 if /I "%choice%"=="4" set RANGE=850-1029& set BOOK=09& set NAME=Mystery_Pryer& goto run
 if /I "%choice%"=="5" set RANGE=1030-1394& set BOOK=10& set NAME=Apocalypse& goto run
 if /I "%choice%"=="A" goto run_all
+if /I "%choice%"=="C" goto custom
 if /I "%choice%"=="S" goto end
 
 echo Opcao invalida.
@@ -53,6 +55,20 @@ if %ERRORLEVEL% neq 0 (
 )
 echo [OK] Concluido. Verifique .\build\
 
+goto end
+
+:: custom range
+:custom
+set /p RANGE=Informe a faixa (ex.: 441-480): 
+if "%RANGE%"=="" (
+  echo Faixa invalida.
+  goto menu
+)
+echo [INFO] Gerando faixa personalizada %RANGE%...
+.\.venv\Scripts\python.exe -m ldm_kindler.cli --range-str %RANGE% --out .\build --min-delay 2 --max-delay 5 --max-retries 4
+if %ERRORLEVEL% neq 0 (
+  echo [ERRO] Falha ao processar %RANGE%.
+)
 goto end
 
 :run_all
