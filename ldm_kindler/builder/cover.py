@@ -7,11 +7,14 @@ from typing import Dict
 from PIL import Image, ImageDraw, ImageFont
 
 
-def generate_cover_image(book: Dict, size=(1600, 2560)) -> bytes:
+def generate_cover_image(book: Dict, size=(1600, 2560), series_title: str | None = None) -> bytes:
     img = Image.new('RGB', size, color=(20, 24, 28))
     draw = ImageDraw.Draw(img)
 
-    title = f"Lorde dos Mistérios\nLivro {book['book']}:\n{book['title']}\n({book['start']}-{book['end']})"
+    if series_title:
+        title = f"{series_title}\n({book['start']}-{book['end']})"
+    else:
+        title = f"Lorde dos Mistérios\nLivro {book['book']}:\n{book['title']}\n({book['start']}-{book['end']})"
 
     try:
         font = ImageFont.truetype("arial.ttf", 72)

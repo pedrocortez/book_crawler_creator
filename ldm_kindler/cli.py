@@ -104,16 +104,31 @@ def run(
         typer.echo(json.dumps({"level": "INFO", "status": "dry_run_complete", "chapters": len(normalized_chapters)}))
         raise typer.Exit(code=0)
 
-    # Agrupamento por livros e construção dos EPUBs
+    # Construção de EPUBs
     builder = EpubBuilder(Path(out), series_title=series_title, author=author)
     by_id = {c["id"]: c for c in normalized_chapters}
-    for book in BOOKS:
-        group = [by_id[cid] for cid in sorted(by_id) if book["start"] <= cid <= book["end"] and cid in by_id]
-        if not group:
-            continue
-        typer.echo(f"[INFO] build EPUB livro={book['book']} range={book['start']}-{book['end']}")
-        builder.build_epub(group, book)
-        typer.echo(f"[OK]   EPUB livro={book['book']} gerado")
+
+    if url_template:
+        # Modo custom: gerar um único EPUB com os capítulos coletados e título da série como título do "livro"
+        book_meta = {
+            "book": 1,
+            "title": series_title or "Livro",
+            "start": min(by_id),
+            "end": max(by_id),
+        }
+        group = [by_id[cid] for cid in sorted(by_id)]
+        typer.echo(f"[INFO] build EPUB unico custom range={book_meta['start']}-{book_meta['end']}")
+        builder.build_epub(group, book_meta)
+        typer.echo("[OK]   EPUB custom gerado")
+    else:
+        # Preset LOM: quebrar por BOOKS
+        for book in BOOKS:
+            group = [by_id[cid] for cid in sorted(by_id) if book["start"] <= cid <= book["end"] and cid in by_id]
+            if not group:
+                continue
+            typer.echo(f"[INFO] build EPUB livro={book['book']} range={book['start']}-{book['end']}")
+            builder.build_epub(group, book)
+            typer.echo(f"[OK]   EPUB livro={book['book']} gerado")
 
 
 if __name__ == "__main__":

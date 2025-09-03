@@ -42,7 +42,7 @@ class EpubBuilder:
         book_epub.add_item(style)
 
         # Capa
-        cover_bytes = generate_cover_image(book)
+        cover_bytes = generate_cover_image(book, series_title=self.series_title)
         book_epub.set_cover("cover.png", cover_bytes)
 
         # Conteúdo

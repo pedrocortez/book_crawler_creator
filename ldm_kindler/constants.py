@@ -62,19 +62,31 @@ def output_filename_for_book(book: dict) -> str:
 
 
 def output_filename(series_title: str, book: dict) -> str:
-    series = (
-        series_title.replace(" ", "_")
-        .replace("ã", "a").replace("â", "a").replace("ê", "e")
-        .replace("é", "e").replace("ó", "o").replace("ç", "c")
-        .replace("/", "_")
-    )
+    series = sanitize_for_filename(series_title)
     book_num = f"{book['book']:02d}"
-    safe_title = (
-        book["title"].replace(" ", "_")
+    safe_title = sanitize_for_filename(book["title"]) 
+    return f"{series}_Livro_{book_num}_{safe_title}_({book['start']}-{book['end']}).epub"
+
+
+def sanitize_for_filename(text: str) -> str:
+    return (
+        text.replace(" ", "_")
         .replace("/", "_")
+        .replace("\\", "_")
+        .replace(":", "-")
+        .replace("*", "-")
+        .replace("?", "")
+        .replace("\"", "'")
+        .replace("<", "(")
+        .replace(">", ")")
+        .replace("|", "-")
         .replace("ã", "a").replace("â", "a").replace("ê", "e")
         .replace("é", "e").replace("ó", "o").replace("ç", "c")
     )
-    return f"{series}_Livro_{book_num}_{safe_title}_({book['start']}-{book['end']}).epub"
+
+
+def output_filename_single(title: str, start: int, end: int) -> str:
+    base = sanitize_for_filename(title)
+    return f"{base}_({start}-{end}).epub"
 
 
