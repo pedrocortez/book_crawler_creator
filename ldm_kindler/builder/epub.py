@@ -26,7 +26,7 @@ class EpubBuilder:
         self.series_title = series_title or "Lorde dos Mistérios"
         self.author = author or "Cuttlefish That Loves Diving (trad. fã)"
 
-    def build_epub(self, chapters: List[Dict[str, Any]], book: Dict[str, Any]) -> Path:
+    def build_epub(self, chapters: List[Dict[str, Any]], book: Dict[str, Any], cover_bytes: bytes | None = None) -> Path:
         book_id = str(uuid.uuid4())
         title = f"{self.series_title} – Livro {book['book']}: {book['title']}"
 
@@ -42,7 +42,8 @@ class EpubBuilder:
         book_epub.add_item(style)
 
         # Capa
-        cover_bytes = generate_cover_image(book, series_title=self.series_title)
+        if cover_bytes is None:
+            cover_bytes = generate_cover_image(book, series_title=self.series_title)
         book_epub.set_cover("cover.png", cover_bytes)
 
         # Conteúdo

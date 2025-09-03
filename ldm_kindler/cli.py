@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import List, Optional
+from io import BytesIO
+import requests
 
 import typer
 from rich.progress import Progress
@@ -41,6 +43,7 @@ def run(
     url_template: Optional[str] = typer.Option(None, help="Template da URL com {id}, ex.: https://site/x/capitulo-{id}"),
     series_title: Optional[str] = typer.Option(None, help="Título da série para metadados/arquivo."),
     author: Optional[str] = typer.Option(None, help="Autor para metadados do EPUB."),
+    cover_url: Optional[str] = typer.Option(None, help="URL da imagem de capa (opcional)"),
     min_delay: float = typer.Option(2.0, help="Delay mínimo entre requests."),
     max_delay: float = typer.Option(5.0, help="Delay máximo entre requests."),
     max_retries: int = typer.Option(4, help="Máximo de tentativas por capítulo."),
@@ -118,7 +121,15 @@ def run(
         }
         group = [by_id[cid] for cid in sorted(by_id)]
         typer.echo(f"[INFO] build EPUB unico custom range={book_meta['start']}-{book_meta['end']}")
-        builder.build_epub(group, book_meta)
+        cover_bytes = None
+        if cover_url:
+            try:
+                r = requests.get(cover_url, timeout=30)
+                r.raise_for_status()
+                cover_bytes = r.content
+            except Exception as e:
+                typer.echo(json.dumps({"level": "WARN", "status": "cover_fetch_failed", "error": str(e)}))
+        builder.build_epub(group, book_meta, cover_bytes=cover_bytes)
         typer.echo("[OK]   EPUB custom gerado")
     else:
         # Preset LOM: quebrar por BOOKS

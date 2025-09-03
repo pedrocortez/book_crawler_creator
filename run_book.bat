@@ -113,13 +113,16 @@ set /p SERIES=Titulo da serie (ex.: Minha Serie):
 if "%SERIES%"=="" set SERIES=Serie
 set /p AUTHOR=Autor (ex.: Autor Desconhecido): 
 if "%AUTHOR%"=="" set AUTHOR=Autor Desconhecido
+set /p COVER=URL da imagem de capa (opcional): 
 set /p RANGE=Faixa de capitulos (ex.: 1-50): 
 if "%RANGE%"=="" (
   echo Faixa invalida.
   goto main
 )
 echo [INFO] Gerando faixa %RANGE% (Custom)...
-.\.venv\Scripts\python.exe -m ldm_kindler.cli --range-str %RANGE% --url-template "%URLT%" --series-title "%SERIES" --author "%AUTHOR%" --out .\build --min-delay 2 --max-delay 5 --max-retries 4
+set COVER_ARG=
+if not "%COVER%"=="" set COVER_ARG= --cover-url "%COVER%"
+.\.venv\Scripts\python.exe -m ldm_kindler.cli --range-str %RANGE% --url-template "%URLT%" --series-title "%SERIES" --author "%AUTHOR%" %COVER_ARG% --out .\build --min-delay 2 --max-delay 5 --max-retries 4
 if %ERRORLEVEL% neq 0 (
   echo [ERRO] Falha ao processar %RANGE%.
   goto end
