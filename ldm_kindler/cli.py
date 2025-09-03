@@ -56,7 +56,7 @@ def run(
     if only_list:
         chapter_ids = only_list
     else:
-        chapter_ids = list(__builtins__["range"](start, end + 1))
+        chapter_ids = list(range(start, end + 1))
 
     normalized_chapters = []
 
