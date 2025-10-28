@@ -90,3 +90,26 @@ def output_filename_single(title: str, start: int, end: int) -> str:
     return f"{base}_({start}-{end}).epub"
 
 
+# ===== TXT filenames =====
+def output_txt_filename_for_book(book: dict) -> str:
+    book_num = f"{book['book']:02d}"
+    safe_title = sanitize_for_filename(book["title"]) 
+    return (
+        f"Lorde_dos_Misterios_Livro_{book_num}_"
+        f"{safe_title}_(" 
+        f"{book['start']}-{book['end']}).txt"
+    )
+
+
+def output_txt_filename(series_title: str, book: dict) -> str:
+    series = sanitize_for_filename(series_title)
+    book_num = f"{book['book']:02d}"
+    safe_title = sanitize_for_filename(book["title"]) 
+    return f"{series}_Livro_{book_num}_{safe_title}_({book['start']}-{book['end']}).txt"
+
+
+def output_txt_filename_single(title: str, start: int, end: int) -> str:
+    base = sanitize_for_filename(title)
+    return f"{base}_({start}-{end}).txt"
+
+

@@ -15,6 +15,7 @@ from ldm_kindler.crawler.parse import parse_chapter
 from ldm_kindler.crawler.clean import clean_html
 from ldm_kindler.crawler.persist import CacheStore
 from ldm_kindler.builder.epub import EpubBuilder
+from ldm_kindler.builder.txt import TxtBuilder
 from ldm_kindler.constants import output_filename_single
 
 
@@ -49,6 +50,9 @@ def run(
     max_delay: float = typer.Option(5.0, help="Delay máximo entre requests."),
     max_retries: int = typer.Option(4, help="Máximo de tentativas por capítulo."),
     dry_run: bool = typer.Option(False, help="Executa sem salvar outputs permanentes."),
+    output_format: str = typer.Option(
+        "epub", "--format", "-f", help="Formato de saída: epub ou txt", case_sensitive=False
+    ),
 ):
     base = Path('.')
     ensure_dirs(base)
@@ -108,8 +112,14 @@ def run(
         typer.echo(json.dumps({"level": "INFO", "status": "dry_run_complete", "chapters": len(normalized_chapters)}))
         raise typer.Exit(code=0)
 
-    # Construção de EPUBs
-    builder = EpubBuilder(Path(out), series_title=series_title, author=author)
+    # Valida formato
+    fmt = (output_format or "epub").lower().strip()
+    if fmt not in {"epub", "txt"}:
+        raise typer.BadParameter("Formato inválido. Use 'epub' ou 'txt'.")
+
+    # Construção de saída
+    epub_builder = EpubBuilder(Path(out), series_title=series_title, author=author)
+    txt_builder = TxtBuilder(Path(out), series_title=series_title, author=author)
     by_id = {c["id"]: c for c in normalized_chapters}
 
     if url_template:
@@ -121,27 +131,37 @@ def run(
             "end": max(by_id),
         }
         group = [by_id[cid] for cid in sorted(by_id)]
-        filename = output_filename_single(series_title or "Livro", book_meta['start'], book_meta['end'])
-        typer.echo(f"[INFO] build EPUB unico custom range={book_meta['start']}-{book_meta['end']} -> {filename}")
-        cover_bytes = None
-        if cover_url:
-            try:
-                r = requests.get(cover_url, timeout=30)
-                r.raise_for_status()
-                cover_bytes = r.content
-            except Exception as e:
-                typer.echo(json.dumps({"level": "WARN", "status": "cover_fetch_failed", "error": str(e)}))
-        builder.build_epub(group, book_meta, cover_bytes=cover_bytes, override_filename=filename)
-        typer.echo("[OK]   EPUB custom gerado")
+        if fmt == "epub":
+            filename = output_filename_single(series_title or "Livro", book_meta['start'], book_meta['end'])
+            typer.echo(f"[INFO] build EPUB unico custom range={book_meta['start']}-{book_meta['end']} -> {filename}")
+            cover_bytes = None
+            if cover_url:
+                try:
+                    r = requests.get(cover_url, timeout=30)
+                    r.raise_for_status()
+                    cover_bytes = r.content
+                except Exception as e:
+                    typer.echo(json.dumps({"level": "WARN", "status": "cover_fetch_failed", "error": str(e)}))
+            epub_builder.build_epub(group, book_meta, cover_bytes=cover_bytes, override_filename=filename)
+            typer.echo("[OK]   EPUB custom gerado")
+        else:
+            typer.echo(f"[INFO] build TXT unico custom range={book_meta['start']}-{book_meta['end']}")
+            txt_builder.build_txt_single(group, series_title or "Livro", book_meta['start'], book_meta['end'])
+            typer.echo("[OK]   TXT custom gerado")
     else:
         # Preset LOM: quebrar por BOOKS
         for book in BOOKS:
             group = [by_id[cid] for cid in sorted(by_id) if book["start"] <= cid <= book["end"] and cid in by_id]
             if not group:
                 continue
-            typer.echo(f"[INFO] build EPUB livro={book['book']} range={book['start']}-{book['end']}")
-            builder.build_epub(group, book)
-            typer.echo(f"[OK]   EPUB livro={book['book']} gerado")
+            if fmt == "epub":
+                typer.echo(f"[INFO] build EPUB livro={book['book']} range={book['start']}-{book['end']}")
+                epub_builder.build_epub(group, book)
+                typer.echo(f"[OK]   EPUB livro={book['book']} gerado")
+            else:
+                typer.echo(f"[INFO] build TXT  livro={book['book']} range={book['start']}-{book['end']}")
+                txt_builder.build_txt(group, book)
+                typer.echo(f"[OK]   TXT  livro={book['book']} gerado")
 
 
 if __name__ == "__main__":
