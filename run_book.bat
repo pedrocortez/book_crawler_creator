@@ -37,7 +37,7 @@ goto main
 
 :lom_menu
 echo.
-echo ================== Gerar EPUB: Lorde dos Misterios ==================
+echo ================== Gerar: Lorde dos Misterios ==================
 echo  [1] Livro 01  Clown (1-65)
 echo  [2] Livro 02  Magician (66-141)
 echo  [3] Livro 03  Seer (142-222)
@@ -72,8 +72,9 @@ echo Opcao invalida.
 goto lom_menu
 
 :run_lom
-echo [INFO] Gerando faixa !RANGE! (LOM)...
-.\.venv\Scripts\python.exe -m ldm_kindler.cli --range-str !RANGE! --out .\build --min-delay 2 --max-delay 5 --max-retries 4
+call :ask_format
+echo [INFO] Gerando faixa !RANGE! (LOM) formato %FORMAT%...
+.\.venv\Scripts\python.exe -m ldm_kindler.cli --range-str !RANGE! --out .\build --min-delay 2 --max-delay 5 --max-retries 4 %FMT_ARG%
 if %ERRORLEVEL% neq 0 (
   echo [ERRO] Falha ao gerar LOM !RANGE!.
   goto end
@@ -90,9 +91,10 @@ if "%RANGE%"=="" (
 goto run_lom
 
 :run_all_lom
+call :ask_format
 for %%R in (1-65 66-141 142-222 223-322 323-390 391-533 534-680 681-849 850-1029 1030-1394) do (
   echo [INFO] Gerando faixa %%R (LOM)...
-  .\.venv\Scripts\python.exe -m ldm_kindler.cli --range-str %%R --out .\build --min-delay 2 --max-delay 5 --max-retries 4
+  .\.venv\Scripts\python.exe -m ldm_kindler.cli --range-str %%R --out .\build --min-delay 2 --max-delay 5 --max-retries 4 %FMT_ARG%
   if !ERRORLEVEL! neq 0 (
     echo [ERRO] Falha ao processar %%R. Encerrando.
     goto end
@@ -122,13 +124,29 @@ if "%RANGE%"=="" (
 echo [INFO] Gerando faixa %RANGE% (Custom)...
 set COVER_ARG=
 if not "%COVER%"=="" set COVER_ARG= --cover-url "%COVER%"
-.\.venv\Scripts\python.exe -m ldm_kindler.cli --range-str %RANGE% --url-template "%URLT%" --series-title "%SERIES" --author "%AUTHOR%" %COVER_ARG% --out .\build --min-delay 2 --max-delay 5 --max-retries 4
+call :ask_format
+.\.venv\Scripts\python.exe -m ldm_kindler.cli --range-str %RANGE% --url-template "%URLT%" --series-title "%SERIES%" --author "%AUTHOR%" %COVER_ARG% --out .\build --min-delay 2 --max-delay 5 --max-retries 4 %FMT_ARG%
 if %ERRORLEVEL% neq 0 (
   echo [ERRO] Falha ao processar %RANGE%.
   goto end
 )
 echo [OK] Concluido. Verifique .\build\
 goto end
+
+:ask_format
+echo.
+echo ================= Formato de saida =================
+echo  [1] EPUB (padrao)
+echo  [2] TXT
+echo ====================================================
+set /p FMT=Escolha o formato: 
+if /I "%FMT%"=="2" (
+  set FORMAT=txt
+) else (
+  set FORMAT=epub
+)
+set FMT_ARG= --format %FORMAT%
+goto :eof
 
 :end
 echo.
