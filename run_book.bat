@@ -38,18 +38,16 @@ goto main
 :lom_menu
 echo.
 echo ================== Gerar: Lorde dos Misterios ==================
-echo  [1] Livro 01  Clown (1-65)
-echo  [2] Livro 02  Magician (66-141)
-echo  [3] Livro 03  Seer (142-222)
-echo  [4] Livro 04  Hero (223-322)
-echo  [5] Livro 05  Bizarro Sorcerer (323-390)
-echo  [6] Livro 06 Hanged Man (391-533)
-echo  [7] Livro 07 Fool (534-680)
-echo  [8] Livro 08 Resonance (681-849)
-echo  [9] Livro 09 Mystery Pryer (850-1029)
-echo  [10] Livro 10 Apocalypse (1030-1394)
+echo  [1] Livro 01  O Mago (1-185)
+echo  [2] Livro 02  O Louco (186-381)
+echo  [3] Livro 03  O Viajante (382-732)
+echo  [4] Livro 04  O Imperador (733-789)
+echo  [5] Livro 05  O Louco dos Ventos (790-961)
+echo  [6] Livro 06  O Eremita (962-1145)
+echo  [7] Livro 07  O Enforcado (1146-1353)
+echo  [8] Livro 08  O Sol (1354-1436)
 echo  [C] Custom (inserir faixa ex.: 441-480)
-echo  [A] Todos (1 a 10)
+echo  [A] Todos (1 a 8)
 echo  [V] Voltar
 echo =====================================================================
 set /p choice=Escolha uma opcao: 
@@ -62,8 +60,6 @@ if /I "%choice%"=="5" set RANGE=323-390& goto run_lom
 if /I "%choice%"=="6" set RANGE=391-533& goto run_lom
 if /I "%choice%"=="7" set RANGE=534-680& goto run_lom
 if /I "%choice%"=="8" set RANGE=681-849& goto run_lom
-if /I "%choice%"=="9" set RANGE=850-1029& goto run_lom
-if /I "%choice%"=="10" set RANGE=1030-1394& goto run_lom
 if /I "%choice%"=="A" goto run_all_lom
 if /I "%choice%"=="C" goto custom_range_lom
 if /I "%choice%"=="V" goto main
@@ -92,7 +88,7 @@ goto run_lom
 
 :run_all_lom
 call :ask_format
-for %%R in (1-65 66-141 142-222 223-322 323-390 391-533 534-680 681-849 850-1029 1030-1394) do (
+for %%R in (1-185 186-381 382-732 733-789 790-961 962-1145 1146-1353 1354-1436) do (
   echo [INFO] Gerando faixa %%R (LOM)...
   .\.venv\Scripts\python.exe -m ldm_kindler.cli --range-str %%R --out .\build --min-delay 2 --max-delay 5 --max-retries 4 %FMT_ARG%
   if !ERRORLEVEL! neq 0 (

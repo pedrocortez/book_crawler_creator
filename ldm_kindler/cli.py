@@ -38,7 +38,7 @@ def parse_range(range_str: Optional[str]) -> Optional[tuple[int, int]]:
 @app.command()
 def run(
     start: int = typer.Option(441, help="Capítulo inicial."),
-    end: int = typer.Option(1394, help="Capítulo final."),
+    end: int = typer.Option(1436, help="Capítulo final."),
     out: str = typer.Option("./build", help="Diretório de saída."),
     only: Optional[str] = typer.Option(None, help="Lista de capítulos: 534,535,536"),
     range_str: Optional[str] = typer.Option(None, help="Faixa: 850-1029"),

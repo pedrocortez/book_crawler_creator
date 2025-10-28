@@ -14,19 +14,17 @@ Projeto em Python 3.11+ para coletar capítulos de romances da web, higienizar o
 - **Estrutura de pastas**
 
 ## Objetivos
-- **Coletar**: capítulos 1–1394 do site indicado.
+- **Coletar**: capítulos 1–1436 do site indicado.
 - **Normalizar**: salvar HTML bruto e JSON por capítulo, com limpeza para XHTML.
-- **Empacotar**: gerar 10 EPUBs nos intervalos:
-  - Livro 1 – Clown (1–65)
-  - Livro 2 – Magician (66–141)
-  - Livro 3 – Seer (142–222)
-  - Livro 4 – Hero (223–322)
-  - Livro 5 – Bizarro Sorcerer (323–390)
-  - Livro 6 – Hanged Man (391–533)
-  - Livro 7 – Fool (534–680)
-  - Livro 8 – Resonance (681–849)
-  - Livro 9 – Mystery Pryer (850–1029)
-  - Livro 10 – Apocalypse (1030–1394)
+- **Empacotar**: gerar 8 arquivos (por volume):
+  - Livro 1 – O Mago (1–185)
+  - Livro 2 – O Louco (186–381)
+  - Livro 3 – O Viajante (382–732)
+  - Livro 4 – O Imperador (733–789)
+  - Livro 5 – O Louco dos Ventos (790–961)
+  - Livro 6 – O Eremita (962–1145)
+  - Livro 7 – O Enforcado (1146–1353)
+  - Livro 8 – O Sol (1354–1436)
 
 ## Arquitetura
 - **crawler/fetch.py**: requests com user‑agent próprio, validação de `robots.txt`, throttle (min/max delay) e backoff exponencial (429/5xx).
@@ -52,11 +50,9 @@ py -m venv .venv
 ## Uso (CLI)
 Todos os exemplos assumem a venv ativada acima.
 
-- **LOM completo (1–1394, gera EPUBs em ./build)**:
+- **LOM completo (1–1436, gera saídas em ./build)**:
 ```powershell
-.\.venv\Scripts\python.exe -m ldm_kindler.cli --start 1 --end 1394 --out .\build
-
-
+.\.venv\Scripts\python.exe -m ldm_kindler.cli run --start 1 --end 1436 --out .\build
 ```
 
 - **Dry‑run (valida seletores sem salvar)**:
