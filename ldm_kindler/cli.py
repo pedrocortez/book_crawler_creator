@@ -53,9 +53,17 @@ def run(
     output_format: str = typer.Option(
         "epub", "--format", "-f", help="Formato de saída: epub ou txt", case_sensitive=False
     ),
+    strict_ids: bool = typer.Option(
+        True,
+        help="Se verdadeiro, pula páginas cuja identificação extraída não bate com o capítulo esperado.",
+    ),
 ):
     base = Path('.')
     ensure_dirs(base)
+
+    # Exigir URL customizada: desabilita modo LOM
+    if not url_template:
+        raise typer.BadParameter("Informe --url-template para coletar a partir de uma fonte customizada.")
 
     if range_str:
         start, end = parse_range(range_str)  # type: ignore
@@ -98,6 +106,21 @@ def run(
 
             typer.echo(f"[INFO] ({idx}/{total}) parse cid={cid}")
             parsed = parse_chapter(cid, url, html)
+            # Validação de ID extraído vs esperado
+            parsed_id = parsed.get("id", cid)
+            if parsed_id != cid:
+                typer.echo(json.dumps({
+                    "level": "WARN",
+                    "status": "chapter_id_mismatch",
+                    "expected": cid,
+                    "parsed": parsed_id,
+                    "url": url,
+                }))
+                if strict_ids:
+                    progress.advance(task)
+                    continue
+                else:
+                    parsed["id"] = cid
             typer.echo(f"[INFO] ({idx}/{total}) clean cid={cid}")
             cleaned = clean_html(parsed)
 
@@ -122,46 +145,31 @@ def run(
     txt_builder = TxtBuilder(Path(out), series_title=series_title, author=author)
     by_id = {c["id"]: c for c in normalized_chapters}
 
-    if url_template:
-        # Modo custom: gerar um único EPUB com os capítulos coletados e título da série como título do "livro"
-        book_meta = {
-            "book": 1,
-            "title": series_title or "Livro",
-            "start": min(by_id),
-            "end": max(by_id),
-        }
-        group = [by_id[cid] for cid in sorted(by_id)]
-        if fmt == "epub":
-            filename = output_filename_single(series_title or "Livro", book_meta['start'], book_meta['end'])
-            typer.echo(f"[INFO] build EPUB unico custom range={book_meta['start']}-{book_meta['end']} -> {filename}")
-            cover_bytes = None
-            if cover_url:
-                try:
-                    r = requests.get(cover_url, timeout=30)
-                    r.raise_for_status()
-                    cover_bytes = r.content
-                except Exception as e:
-                    typer.echo(json.dumps({"level": "WARN", "status": "cover_fetch_failed", "error": str(e)}))
-            epub_builder.build_epub(group, book_meta, cover_bytes=cover_bytes, override_filename=filename)
-            typer.echo("[OK]   EPUB custom gerado")
-        else:
-            typer.echo(f"[INFO] build TXT unico custom range={book_meta['start']}-{book_meta['end']}")
-            txt_builder.build_txt_single(group, series_title or "Livro", book_meta['start'], book_meta['end'])
-            typer.echo("[OK]   TXT custom gerado")
+    # Modo custom: gerar um único arquivo com os capítulos coletados
+    book_meta = {
+        "book": 1,
+        "title": series_title or "Livro",
+        "start": min(by_id),
+        "end": max(by_id),
+    }
+    group = [by_id[cid] for cid in sorted(by_id)]
+    if fmt == "epub":
+        filename = output_filename_single(series_title or "Livro", book_meta['start'], book_meta['end'])
+        typer.echo(f"[INFO] build EPUB unico custom range={book_meta['start']}-{book_meta['end']} -> {filename}")
+        cover_bytes = None
+        if cover_url:
+            try:
+                r = requests.get(cover_url, timeout=30)
+                r.raise_for_status()
+                cover_bytes = r.content
+            except Exception as e:
+                typer.echo(json.dumps({"level": "WARN", "status": "cover_fetch_failed", "error": str(e)}))
+        epub_builder.build_epub(group, book_meta, cover_bytes=cover_bytes, override_filename=filename)
+        typer.echo("[OK]   EPUB custom gerado")
     else:
-        # Preset LOM: quebrar por BOOKS
-        for book in BOOKS:
-            group = [by_id[cid] for cid in sorted(by_id) if book["start"] <= cid <= book["end"] and cid in by_id]
-            if not group:
-                continue
-            if fmt == "epub":
-                typer.echo(f"[INFO] build EPUB livro={book['book']} range={book['start']}-{book['end']}")
-                epub_builder.build_epub(group, book)
-                typer.echo(f"[OK]   EPUB livro={book['book']} gerado")
-            else:
-                typer.echo(f"[INFO] build TXT  livro={book['book']} range={book['start']}-{book['end']}")
-                txt_builder.build_txt(group, book)
-                typer.echo(f"[OK]   TXT  livro={book['book']} gerado")
+        typer.echo(f"[INFO] build TXT unico custom range={book_meta['start']}-{book_meta['end']}")
+        txt_builder.build_txt_single(group, series_title or "Livro", book_meta['start'], book_meta['end'])
+        typer.echo("[OK]   TXT custom gerado")
 
 
 if __name__ == "__main__":

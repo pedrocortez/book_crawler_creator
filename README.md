@@ -1,6 +1,6 @@
 ### Book Crawler Creator – Crawler e Gerador de EPUB
 
-Projeto em Python 3.11+ para coletar capítulos de romances da web, higienizar o HTML, normalizar em JSON e empacotar livros em EPUB prontos para Kindle. Inclui presets para “Lorde dos Mistérios” (LOM) e modo de URL customizada (template com {id}).
+Projeto em Python 3.11+ para coletar capítulos de romances da web via URL template (com {id}), higienizar o HTML, normalizar em JSON e empacotar saídas em EPUB/TXT.
 
 ## Sumário
 - **Objetivos**
@@ -14,17 +14,9 @@ Projeto em Python 3.11+ para coletar capítulos de romances da web, higienizar o
 - **Estrutura de pastas**
 
 ## Objetivos
-- **Coletar**: capítulos 1–1436 do site indicado.
+- **Coletar**: capítulos a partir de um template de URL (`--url-template` com `{id}`).
 - **Normalizar**: salvar HTML bruto e JSON por capítulo, com limpeza para XHTML.
-- **Empacotar**: gerar 8 arquivos (por volume):
-  - Livro 1 – O Mago (1–185)
-  - Livro 2 – O Louco (186–381)
-  - Livro 3 – O Viajante (382–732)
-  - Livro 4 – O Imperador (733–789)
-  - Livro 5 – O Louco dos Ventos (790–961)
-  - Livro 6 – O Eremita (962–1145)
-  - Livro 7 – O Enforcado (1146–1353)
-  - Livro 8 – O Sol (1354–1436)
+- **Empacotar**: gerar um arquivo único por execução (EPUB ou TXT) com a faixa escolhida.
 
 ## Arquitetura
 - **crawler/fetch.py**: requests com user‑agent próprio, validação de `robots.txt`, throttle (min/max delay) e backoff exponencial (429/5xx).
@@ -50,11 +42,6 @@ py -m venv .venv
 ## Uso (CLI)
 Todos os exemplos assumem a venv ativada acima.
 
-- **LOM completo (1–1436, gera saídas em ./build)**:
-```powershell
-.\.venv\Scripts\python.exe -m ldm_kindler.cli run --start 1 --end 1436 --out .\build
-```
-
 - **Dry‑run (valida seletores sem salvar)**:
 ```powershell
 .\.venv\Scripts\python.exe -m ldm_kindler.cli --dry-run --start 441 --end 450
@@ -75,24 +62,23 @@ Todos os exemplos assumem a venv ativada acima.
 .\.venv\Scripts\python.exe -m ldm_kindler.cli --min-delay 2 --max-delay 5 --max-retries 4
 ```
 
-- **Origem dinâmica (URL template, série e autor)**:
+- **Origem via URL template (obrigatório), série e autor**:
 ```powershell
-# Ex.: site diferente com capitulo-{id}
-.\.venv\Scripts\python.exe -m ldm_kindler.cli --range-str 1-50 ^
+.\.venv\Scripts\python.exe -m ldm_kindler.cli run ^
+  --range-str 1-50 ^
   --url-template "https://exemplo.com/romance/capitulo-{id}" ^
   --series-title "Minha Série" ^
   --author "Autor Desconhecido" ^
+  --format epub ^
   --out .\build
 ```
 
 ## Uso (menu .bat)
-- Execute o atalho com menu:
+- Execução guiada por prompts para URL template:
 ```powershell
 ./run_book.bat
 ```
-- Escolha a fonte:
-  - LOM (presets 1–10) → selecione um livro ou “Todos”/“Custom”.
-  - URL customizada → informe URL template com {id}, título da série, autor e faixa.
+- Informe o `--url-template`, título da série, autor, faixa e formato (EPUB/TXT).
 
 - **Saídas**:
   - **EPUBs**: `./build`

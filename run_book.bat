@@ -23,17 +23,7 @@ if %ERRORLEVEL% neq 0 (
 
 :main
 echo.
-echo =============== Fonte de conteudo ===============
-echo  [1] LOM (Lorde dos Misterios) - presets de livros 1 a 10
-echo  [2] URL customizada - informar URL, titulo e autor
-echo  [S] Sair
-echo ================================================
-set /p SRC=Escolha a fonte: 
-if /I "%SRC%"=="1" goto lom_menu
-if /I "%SRC%"=="2" goto custom_mode
-if /I "%SRC%"=="S" goto end
-echo Opcao invalida.
-goto main
+goto custom_mode
 
 :lom_menu
 echo.
@@ -105,7 +95,7 @@ echo ============== Modo URL customizada ==============
 set /p URLT=URL template (use {id}, ex.: https://site/obra/capitulo-{id}): 
 if "%URLT%"=="" (
   echo URL invalida.
-  goto main
+  goto end
 )
 set /p SERIES=Titulo da serie (ex.: Minha Serie): 
 if "%SERIES%"=="" set SERIES=Serie
@@ -115,7 +105,7 @@ set /p COVER=URL da imagem de capa (opcional):
 set /p RANGE=Faixa de capitulos (ex.: 1-50): 
 if "%RANGE%"=="" (
   echo Faixa invalida.
-  goto main
+  goto end
 )
 echo [INFO] Gerando faixa %RANGE% (Custom)...
 set COVER_ARG=
