@@ -203,6 +203,13 @@ input::placeholder { color: var(--text-muted); }
 .log-line.OK   .lvl  { color: var(--ok); }
 .log-line.WARN .lvl  { color: var(--warn); }
 .log-line.ERROR .lvl { color: var(--err); }
+.log-line .ecode {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--err);
+  opacity: 0.95;
+}
 .log-line .msg { color: var(--text); word-break: break-all; }
 
 /* ── File Cards ─────────────────────────────────────────────────────────────── */

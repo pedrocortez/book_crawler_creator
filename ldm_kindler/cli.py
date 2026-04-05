@@ -10,6 +10,7 @@ import typer
 from rich.progress import Progress
 
 from ldm_kindler.constants import BOOKS, ensure_dirs
+from ldm_kindler.errors import ErrorCode, get_logger, log_error
 from ldm_kindler.crawler.fetch import FetchClient
 from ldm_kindler.crawler.parse import parse_chapter
 from ldm_kindler.crawler.clean import clean_html
@@ -20,6 +21,7 @@ from ldm_kindler.constants import output_filename_single
 
 
 app = typer.Typer(help="Crawler e gerador de EPUB para 'Lorde dos Mistérios'.")
+_log = get_logger("kindlemake.cli")
 
 
 def parse_only_list(only: Optional[str]) -> Optional[List[int]]:
@@ -63,7 +65,12 @@ def run(
 
     # Exigir URL customizada: desabilita modo LOM
     if not url_template:
-        raise typer.BadParameter("Informe --url-template para coletar a partir de uma fonte customizada.")
+        msg = (
+            f"[{ErrorCode.CLI_URL_TEMPLATE_REQUIRED}] "
+            "Informe --url-template para coletar a partir de uma fonte customizada."
+        )
+        log_error(_log, ErrorCode.CLI_URL_TEMPLATE_REQUIRED, "CLI: url-template obrigatório ausente")
+        raise typer.BadParameter(msg)
 
     if range_str:
         start, end = parse_range(range_str)  # type: ignore
@@ -138,7 +145,9 @@ def run(
     # Valida formato
     fmt = (output_format or "epub").lower().strip()
     if fmt not in {"epub", "txt"}:
-        raise typer.BadParameter("Formato inválido. Use 'epub' ou 'txt'.")
+        msg = f"[{ErrorCode.CLI_OUTPUT_FORMAT_INVALID}] Formato inválido. Use 'epub' ou 'txt'."
+        log_error(_log, ErrorCode.CLI_OUTPUT_FORMAT_INVALID, f"CLI: formato inválido ({fmt!r})")
+        raise typer.BadParameter(msg)
 
     # Construção de saída
     epub_builder = EpubBuilder(Path(out), series_title=series_title, author=author)
@@ -163,7 +172,23 @@ def run(
                 r.raise_for_status()
                 cover_bytes = r.content
             except Exception as e:
-                typer.echo(json.dumps({"level": "WARN", "status": "cover_fetch_failed", "error": str(e)}))
+                log_error(
+                    _log,
+                    ErrorCode.JOB_COVER_FETCH_FAILED,
+                    "CLI: falha ao baixar capa",
+                    extra={"cover_url": cover_url},
+                    exc_info=e,
+                )
+                typer.echo(
+                    json.dumps(
+                        {
+                            "level": "WARN",
+                            "status": "cover_fetch_failed",
+                            "error_code": ErrorCode.JOB_COVER_FETCH_FAILED,
+                            "error": str(e),
+                        }
+                    )
+                )
         epub_builder.build_epub(group, book_meta, cover_bytes=cover_bytes, override_filename=filename)
         typer.echo("[OK]   EPUB custom gerado")
     else:

@@ -44,6 +44,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import FileCard from '../components/FileCard.vue'
+import { formatApiError, readJsonBody } from '../stores/jobs.js'
 
 const files = ref([])
 const loading = ref(false)
@@ -66,8 +67,11 @@ async function load() {
   error.value = ''
   try {
     const res = await fetch('/api/library')
-    if (!res.ok) throw new Error('Erro ao carregar biblioteca')
-    files.value = await res.json()
+    const body = await readJsonBody(res)
+    if (!res.ok) {
+      throw new Error(formatApiError(body, res.status, res.statusText))
+    }
+    files.value = Array.isArray(body) ? body : []
   } catch (e) {
     error.value = e.message
   } finally {
