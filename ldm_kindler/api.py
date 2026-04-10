@@ -110,6 +110,29 @@ class JobRequest(BaseModel):
     max_delay: float = 5.0
     max_retries: int = 4
     strict_ids: bool = True
+    url_overrides: Optional[Dict[int, str]] = None
+
+    @field_validator("url_overrides", mode="before")
+    @classmethod
+    def normalize_url_overrides(cls, v: Any) -> Optional[Dict[int, str]]:
+        if v is None:
+            return None
+        if isinstance(v, dict) and not v:
+            return {}
+        if not isinstance(v, dict):
+            raise ValueError("url_overrides deve ser um objeto JSON (mapa id de capítulo → URL)")
+        out: Dict[int, str] = {}
+        for k, val in v.items():
+            try:
+                cid = int(k)
+            except (TypeError, ValueError) as e:
+                raise ValueError(
+                    f"Chave inválida em url_overrides: {k!r} (use o número do capítulo, ex.: \"477\")"
+                ) from e
+            if not isinstance(val, str) or not val.strip():
+                raise ValueError(f"URL inválida ou vazia para o capítulo {cid}")
+            out[cid] = val.strip()
+        return out
 
     @field_validator("start", "end")
     @classmethod
@@ -185,6 +208,8 @@ async def _run_job(job_id: str, req: JobRequest) -> None:
         max_delay=req.max_delay,
         max_retries=req.max_retries,
         url_template=req.url_template,
+        url_overrides=req.url_overrides or {},
+        cache_store=cache,
     )
 
     loop = asyncio.get_event_loop()
@@ -206,7 +231,7 @@ async def _run_job(job_id: str, req: JobRequest) -> None:
                     continue
 
                 url = fetcher.compose_url(cid)
-                html = await loop.run_in_executor(None, _blocking_fetch, cid, url)
+                html, chapter_url_effective = await loop.run_in_executor(None, _blocking_fetch, cid, url)
 
                 if html is None:
                     _emit(job_id, "WARN", f"({idx}/{total}) sem HTML cid={cid}", chapter=cid, status="skip_no_html")
@@ -216,7 +241,7 @@ async def _run_job(job_id: str, req: JobRequest) -> None:
                 cache.save_html(cid, html)
                 _emit(job_id, "INFO", f"({idx}/{total}) parse cid={cid}", chapter=cid)
 
-                parsed = parse_chapter(cid, url, html)
+                parsed = parse_chapter(cid, chapter_url_effective, html)
                 parsed_id = parsed.get("id", cid)
                 if parsed_id != cid:
                     _emit(

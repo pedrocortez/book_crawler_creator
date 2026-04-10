@@ -47,6 +47,24 @@
             <input id="cover_url" v-model="form.cover_url" placeholder="https://..." />
           </div>
 
+          <details class="field full">
+            <summary>Overrides de URL (opcional)</summary>
+            <p class="hint mt1">
+              JSON com <code>id do capítulo → URL</code> quando o template não refletir a URL real.
+              Ex.: <code>{"477":"https://site/obra/capitulo-477-frenesi/"}</code>
+            </p>
+            <textarea
+              id="url_overrides_json"
+              v-model="form.url_overrides_json"
+              class="url-overrides-json"
+              rows="6"
+              placeholder='{
+  "477": "https://...",
+  "480": "https://..."
+}'
+            />
+          </details>
+
           <div class="field">
             <label for="min_delay">Delay mínimo (s)</label>
             <input id="min_delay" v-model.number="form.min_delay" type="number" step="0.5" min="0" />
@@ -135,6 +153,7 @@ const defaultForm = () => ({
   author: '',
   output_format: 'epub',
   cover_url: '',
+  url_overrides_json: '',
   min_delay: 2.0,
   max_delay: 5.0,
   max_retries: 4,
@@ -152,7 +171,27 @@ async function submit() {
   error.value = ''
   loading.value = true
   try {
+    let urlOverrides
+    const raw = String(form.url_overrides_json ?? '').trim()
+    if (raw) {
+      let parsed
+      try {
+        parsed = JSON.parse(raw)
+      } catch {
+        error.value = 'JSON inválido em Overrides de URL.'
+        return
+      }
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        error.value =
+          'Overrides de URL: esperado um objeto, ex.: {"477":"https://..."}.'
+        return
+      }
+      urlOverrides = parsed
+    }
+
     const payload = { ...form }
+    delete payload.url_overrides_json
+    if (urlOverrides) payload.url_overrides = urlOverrides
     if (!payload.author) delete payload.author
     if (!payload.cover_url) delete payload.cover_url
     if (!payload.series_title) payload.series_title = 'Livro'
