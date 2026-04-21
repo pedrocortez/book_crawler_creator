@@ -15,6 +15,11 @@ def test_regex_chapter_number_url():
     assert extract_chapter_id_from("", "https://x/ldm-lorde-dos-misterios-capitulo-999") == 999
 
 
+def test_regex_chapter_url_uses_last_capitulo_segment():
+    u = "https://x/story/capitulo-1/foo/capitulo-477-bar"
+    assert extract_chapter_id_from("", u) == 477
+
+
 def test_clean_basic_html():
     parsed = {
         "id": 1,

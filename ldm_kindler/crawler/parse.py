@@ -25,9 +25,9 @@ def extract_chapter_id_from(title: str, url: str) -> int | None:
     m = CHAPTER_REGEX_TITLE.search(title or "")
     if m:
         return int(m.group(1))
-    m2 = CHAPTER_REGEX_URL.search(url or "")
-    if m2:
-        return int(m2.group(1))
+    matches = CHAPTER_REGEX_URL.findall(url or "")
+    if matches:
+        return int(matches[-1])
     return None
 
 

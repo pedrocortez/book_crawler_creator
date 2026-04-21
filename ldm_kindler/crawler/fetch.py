@@ -19,6 +19,7 @@ from tenacity import (
 )
 
 from ldm_kindler.constants import chapter_url
+from ldm_kindler.crawler.parse import extract_chapter_id_from
 from ldm_kindler.errors import ErrorCode
 
 DEFAULT_HEADERS = {
@@ -132,6 +133,10 @@ class FetchClient:
             e.response.raise_for_status()
 
     def _story_index_url(self) -> str:
+        """Deriva a página da obra: remove o sufixo -capitulo-{id} do último segmento quando existir.
+
+        Evita `.../obra-capitulo-{id}` virar só `.../story/`, que lista o site e mistura links (ex.: cap. 1).
+        """
         if not self.url_template:
             raise ValueError("url_template ausente")
         sample = self.url_template.format(id=1)
@@ -140,8 +145,28 @@ class FetchClient:
         parts = [p for p in path.split("/") if p]
         if not parts:
             raise ValueError("path do template inválido")
-        parts = parts[:-1]
-        new_path = "/" + "/".join(parts) + "/"
+
+        last = parts[-1]
+        if re.match(r"(?i)^capitulo-\d+$", last) and len(parts) > 1:
+            parts = parts[:-1]
+        else:
+            stripped = re.sub(r"(?i)-capitulo-\d+$", "", last)
+            if stripped and stripped != last:
+                if len(parts) >= 2 and stripped == parts[-2]:
+                    parts = parts[:-1]
+                else:
+                    parts[-1] = stripped
+            elif len(parts) > 1:
+                parts = parts[:-1]
+            elif re.match(r"(?i)^capitulo-\d+$", last):
+                parts = []
+            else:
+                raise ValueError("Não foi possível derivar a URL do índice a partir do template")
+
+        if not parts:
+            new_path = "/"
+        else:
+            new_path = "/" + "/".join(parts) + "/"
         return urlunparse((parsed.scheme, parsed.netloc, new_path, "", "", ""))
 
     def _parse_index_into_cache(self, html: str, index_url: str) -> None:
@@ -156,7 +181,9 @@ class FetchClient:
                 continue
             cid = int(m.group(1))
             full = urljoin(index_url, href)
-            self._index_cache[cid] = full
+            # Primeira ocorrência ganha (evita sidebar/rodapé sobrescrever o link certo do índice)
+            if cid not in self._index_cache:
+                self._index_cache[cid] = full
 
     def _ensure_index_cache(self) -> None:
         if self._index_loaded:
@@ -273,6 +300,21 @@ class FetchClient:
 
         alt = self._discovered_url_from_index(chapter_id)
         if alt and alt != effective_url:
+            url_id = extract_chapter_id_from("", alt)
+            if url_id is not None and url_id != chapter_id:
+                print(
+                    json.dumps(
+                        {
+                            "level": "WARN",
+                            "status": "index_url_chapter_mismatch",
+                            "chapter": chapter_id,
+                            "url": alt,
+                            "parsed_from_url": url_id,
+                        }
+                    )
+                )
+                alt = None
+        if alt and alt != effective_url:
             print(
                 json.dumps(
                     {
@@ -289,6 +331,21 @@ class FetchClient:
             effective_url = alt
 
         alt2 = self._discover_via_prev_next(chapter_id)
+        if alt2 and alt2 not in (url, effective_url):
+            url_id2 = extract_chapter_id_from("", alt2)
+            if url_id2 is not None and url_id2 != chapter_id:
+                print(
+                    json.dumps(
+                        {
+                            "level": "WARN",
+                            "status": "next_link_chapter_mismatch",
+                            "chapter": chapter_id,
+                            "url": alt2,
+                            "parsed_from_url": url_id2,
+                        }
+                    )
+                )
+                alt2 = None
         if alt2 and alt2 not in (url, effective_url):
             print(
                 json.dumps(
