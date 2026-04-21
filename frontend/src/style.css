@@ -113,7 +113,7 @@ label {
   color: var(--text-dim);
 }
 
-input, select {
+input, select, textarea {
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -124,11 +124,29 @@ input, select {
   transition: border-color var(--transition);
   width: 100%;
 }
-input:focus, select:focus {
+input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--border-focus);
 }
-input::placeholder { color: var(--text-muted); }
+input::placeholder, textarea::placeholder { color: var(--text-muted); }
+
+textarea.url-overrides-json {
+  font-family: ui-monospace, 'Cascadia Code', 'Consolas', monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+  min-height: 7rem;
+  line-height: 1.4;
+}
+
+details.field > summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+details.field > summary:hover { color: var(--sepia); }
 
 /* ── Buttons ────────────────────────────────────────────────────────────────── */
 .btn {

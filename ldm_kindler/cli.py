@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from io import BytesIO
 import requests
 
@@ -37,6 +37,35 @@ def parse_range(range_str: Optional[str]) -> Optional[tuple[int, int]]:
     return int(a), int(b)
 
 
+def _normalize_url_overrides(data: Any) -> Dict[int, str]:
+    if not isinstance(data, dict):
+        raise typer.BadParameter("url-overrides: a raiz do JSON deve ser um objeto (mapa id → URL).")
+    out: Dict[int, str] = {}
+    for k, val in data.items():
+        try:
+            cid = int(k)
+        except (TypeError, ValueError) as e:
+            raise typer.BadParameter(
+                f"url-overrides: chave inválida {k!r} (use o número do capítulo, ex.: 477)."
+            ) from e
+        if not isinstance(val, str) or not val.strip():
+            raise typer.BadParameter(f"url-overrides: URL inválida ou vazia para o capítulo {cid}.")
+        out[cid] = val.strip()
+    return out
+
+
+def _load_url_overrides_file(path: Optional[Path]) -> Dict[int, str]:
+    if path is None:
+        return {}
+    if not path.is_file():
+        raise typer.BadParameter(f"Arquivo de overrides não encontrado: {path}")
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise typer.BadParameter(f"JSON inválido em {path}: {e}") from e
+    return _normalize_url_overrides(raw)
+
+
 @app.command()
 def run(
     start: int = typer.Option(441, help="Capítulo inicial."),
@@ -59,6 +88,11 @@ def run(
         True,
         help="Se verdadeiro, pula páginas cuja identificação extraída não bate com o capítulo esperado.",
     ),
+    url_overrides_file: Optional[Path] = typer.Option(
+        None,
+        "--url-overrides",
+        help="Arquivo JSON: {\"477\": \"https://...\", ...} para capítulos fora do padrão do template.",
+    ),
 ):
     base = Path('.')
     ensure_dirs(base)
@@ -76,8 +110,16 @@ def run(
         start, end = parse_range(range_str)  # type: ignore
     only_list = parse_only_list(only)
 
+    url_overrides = _load_url_overrides_file(url_overrides_file)
     cache = CacheStore(base)
-    fetcher = FetchClient(min_delay=min_delay, max_delay=max_delay, max_retries=max_retries, url_template=url_template)
+    fetcher = FetchClient(
+        min_delay=min_delay,
+        max_delay=max_delay,
+        max_retries=max_retries,
+        url_template=url_template,
+        url_overrides=url_overrides,
+        cache_store=cache,
+    )
 
     chapter_ids: List[int]
     if only_list:
@@ -102,7 +144,7 @@ def run(
                 continue
 
             url = fetcher.compose_url(cid)
-            html = fetcher.fetch(cid, url)
+            html, chapter_url = fetcher.fetch(cid, url)
 
             if html is None:
                 typer.echo(json.dumps({"level": "WARN", "chapter": cid, "status": "skip_no_html", "url": url}))
@@ -112,7 +154,7 @@ def run(
             cache.save_html(cid, html)
 
             typer.echo(f"[INFO] ({idx}/{total}) parse cid={cid}")
-            parsed = parse_chapter(cid, url, html)
+            parsed = parse_chapter(cid, chapter_url, html)
             # Validação de ID extraído vs esperado
             parsed_id = parsed.get("id", cid)
             if parsed_id != cid:
@@ -121,7 +163,7 @@ def run(
                     "status": "chapter_id_mismatch",
                     "expected": cid,
                     "parsed": parsed_id,
-                    "url": url,
+                    "url": chapter_url,
                 }))
                 if strict_ids:
                     progress.advance(task)
