@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -42,7 +42,7 @@ class EpubBuilder:
         book_epub.set_language("pt-BR")
         book_epub.add_author(self.author)
         book_epub.add_metadata('DC', 'publisher', 'Compilação pessoal – uso privado')
-        book_epub.add_metadata('DC', 'date', datetime.utcnow().strftime('%Y-%m-%d'))
+        book_epub.add_metadata('DC', 'date', datetime.now(timezone.utc).strftime('%Y-%m-%d'))
 
         style = epub.EpubItem(uid="style_nav", file_name="style/style.css", media_type="text/css", content=CSS_TEXT)
         book_epub.add_item(style)
