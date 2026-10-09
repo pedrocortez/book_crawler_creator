@@ -6,19 +6,55 @@
       <form @submit.prevent="submit">
         <div class="form-grid">
           <div class="field full">
+            <label>Como fornecer a URL</label>
+            <div style="display:flex; gap:1rem; flex-wrap:wrap">
+              <label style="display:flex; align-items:center; gap:0.4rem; font-weight:normal">
+                <input type="radio" value="template" v-model="form.url_mode" /> URL Template
+              </label>
+              <label style="display:flex; align-items:center; gap:0.4rem; font-weight:normal">
+                <input type="radio" value="start_url" v-model="form.url_mode" /> Link de um capítulo
+              </label>
+            </div>
+          </div>
+
+          <div v-if="form.url_mode === 'template'" class="field full">
             <label for="url_template">URL Template <span style="color:var(--err)">*</span></label>
             <input
               id="url_template"
               v-model="form.url_template"
               placeholder="https://site.com/capitulo-{id}"
-              required
             />
             <p class="hint">Use <code>{id}</code> como marcador do número do capítulo.</p>
           </div>
 
-          <div class="field">
+          <div v-else class="field full">
+            <label for="start_url">URL de um capítulo <span style="color:var(--err)">*</span></label>
+            <input
+              id="start_url"
+              v-model="form.start_url"
+              placeholder="https://site.com/.../capitulo-736-noite/"
+            />
+            <p class="hint">
+              Cole o link de um capítulo. O número é detectado e o template é deduzido
+              automaticamente; capítulos seguintes com slugs diferentes são descobertos
+              pelo índice da obra ou pelo link "próximo".
+            </p>
+          </div>
+
+          <div class="field" v-if="form.url_mode === 'template'">
             <label for="start">Capítulo inicial</label>
             <input id="start" v-model.number="form.start" type="number" min="1" required />
+          </div>
+          <div class="field" v-else>
+            <label for="start_optional">Capítulo inicial (opcional)</label>
+            <input
+              id="start_optional"
+              v-model.number="form.start"
+              type="number"
+              min="1"
+              placeholder="auto"
+            />
+            <p class="hint">Se vazio, usa o número detectado na URL.</p>
           </div>
           <div class="field">
             <label for="end">Capítulo final</label>
@@ -91,6 +127,32 @@
       </form>
     </div>
 
+    <!-- Cache -->
+    <div class="card mt2">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; flex-wrap:wrap">
+        <div>
+          <h3 style="font-size:1.05rem; color:var(--sepia); margin:0">Cache de capítulos</h3>
+          <p v-if="cacheStats" class="hint" style="margin:0.25rem 0 0">
+            HTML: {{ cacheStats.html.count }} arquivo(s) ({{ formatBytes(cacheStats.html.bytes) }})
+            · JSON: {{ cacheStats.json.count }} arquivo(s) ({{ formatBytes(cacheStats.json.bytes) }})
+          </p>
+          <p v-else class="hint" style="margin:0.25rem 0 0">Carregando estatísticas...</p>
+        </div>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap">
+          <button class="btn btn-ghost btn-sm" type="button" @click="loadCacheStats" :disabled="cacheBusy">↻ Atualizar</button>
+          <button class="btn btn-ghost btn-sm" type="button" @click="confirmClearCache('html')" :disabled="cacheBusy">Apagar HTML</button>
+          <button class="btn btn-ghost btn-sm" type="button" @click="confirmClearCache('json')" :disabled="cacheBusy">Apagar JSON</button>
+          <button class="btn btn-primary btn-sm" type="button" @click="confirmClearCache('all')" :disabled="cacheBusy">
+            <span v-if="cacheBusy" class="spinner"></span>
+            <span>{{ cacheBusy ? 'Apagando...' : 'Apagar tudo' }}</span>
+          </button>
+        </div>
+      </div>
+      <p v-if="cacheMsg" class="hint mt1" :style="{ color: cacheErr ? 'var(--err)' : 'var(--ok, #2c7)' }">
+        {{ cacheMsg }}
+      </p>
+    </div>
+
     <!-- Jobs recentes -->
     <div class="mt2">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem">
@@ -144,9 +206,58 @@ const router = useRouter()
 const store = useJobsStore()
 const loading = ref(false)
 const error = ref('')
+const cacheStats = ref(null)
+const cacheBusy = ref(false)
+const cacheMsg = ref('')
+const cacheErr = ref(false)
+
+function formatBytes(n) {
+  if (!n) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let i = 0
+  let v = n
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`
+}
+
+async function loadCacheStats() {
+  try {
+    cacheStats.value = await store.fetchCacheStats()
+  } catch (e) {
+    cacheErr.value = true
+    cacheMsg.value = e.message
+  }
+}
+
+async function confirmClearCache(kind) {
+  const label = kind === 'all' ? 'todo o cache (HTML + JSON)' : `o cache ${kind.toUpperCase()}`
+  if (!window.confirm(`Apagar ${label}? Os capítulos serão re-baixados no próximo crawl.`)) {
+    return
+  }
+  cacheBusy.value = true
+  cacheMsg.value = ''
+  cacheErr.value = false
+  try {
+    const result = await store.clearCache(kind)
+    cacheStats.value = result.stats
+    const removed = result.removed || {}
+    const total = (removed.html || 0) + (removed.json || 0)
+    cacheMsg.value = `Cache apagado: ${total} arquivo(s) removido(s) (HTML: ${removed.html || 0}, JSON: ${removed.json || 0}).`
+  } catch (e) {
+    cacheErr.value = true
+    cacheMsg.value = e.message
+  } finally {
+    cacheBusy.value = false
+  }
+}
 
 const defaultForm = () => ({
+  url_mode: 'template',
   url_template: '',
+  start_url: '',
   start: 1,
   end: 10,
   series_title: '',
@@ -191,6 +302,21 @@ async function submit() {
 
     const payload = { ...form }
     delete payload.url_overrides_json
+    delete payload.url_mode
+    if (form.url_mode === 'start_url') {
+      if (!String(form.start_url || '').trim()) {
+        error.value = 'Informe a URL de um capítulo.'
+        return
+      }
+      delete payload.url_template
+      if (!payload.start) delete payload.start
+    } else {
+      delete payload.start_url
+      if (!String(form.url_template || '').trim()) {
+        error.value = 'Informe o URL Template.'
+        return
+      }
+    }
     if (urlOverrides) payload.url_overrides = urlOverrides
     if (!payload.author) delete payload.author
     if (!payload.cover_url) delete payload.cover_url
@@ -209,5 +335,8 @@ function progressPct(job) {
   return Math.round((job.progress / job.total) * 100)
 }
 
-onMounted(() => store.fetchJobs())
+onMounted(() => {
+  store.fetchJobs()
+  loadCacheStats()
+})
 </script>

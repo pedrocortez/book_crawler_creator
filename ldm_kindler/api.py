@@ -99,8 +99,8 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
 class JobRequest(BaseModel):
-    url_template: str
-    start: int
+    url_template: Optional[str] = None
+    start: Optional[int] = None
     end: int
     series_title: Optional[str] = "Livro"
     author: Optional[str] = None
@@ -111,6 +111,11 @@ class JobRequest(BaseModel):
     max_retries: int = 4
     strict_ids: bool = True
     url_overrides: Optional[Dict[int, str]] = None
+    # Alternativa ao url_template: cole o link de um capítulo (ex.:
+    # https://site/.../capitulo-736-noite/) e o backend deriva o template e o
+    # número do capítulo. URLs com slugs diferentes (capitulo-737-outro) serão
+    # descobertas via índice da obra ou pelo link `next` do capítulo anterior.
+    start_url: Optional[str] = None
 
     @field_validator("url_overrides", mode="before")
     @classmethod
@@ -136,13 +141,56 @@ class JobRequest(BaseModel):
 
     @field_validator("start", "end")
     @classmethod
-    def positive_chapters(cls, v: int) -> int:
+    def positive_chapters(cls, v: Optional[int]) -> Optional[int]:
+        if v is None:
+            return v
         if v < 1:
             raise ValueError("Número de capítulo deve ser >= 1")
         return v
 
+    # Campos derivados em runtime a partir do start_url. Exclude=True garante
+    # que não vazem na resposta de /api/jobs (não fazem parte do contrato do
+    # cliente; só servem para configurar o FetchClient).
+    story_path_prefix: Optional[str] = None
+    prefer_next_link: bool = False
+
     @model_validator(mode="after")
-    def range_ok(self) -> "JobRequest":
+    def resolve_start_url(self) -> "JobRequest":
+        """Se ``start_url`` for fornecido, deriva ``url_template`` e ``start``.
+
+        Permite que o usuário cole o link de um capítulo sem ter que descobrir o
+        template manualmente. O ``start_url`` também entra como override para o
+        capítulo correspondente, garantindo que a primeira página seja baixada
+        com a URL exata informada (sem depender de adivinhação por slug). Marca
+        ``prefer_next_link=True`` e armazena ``story_path_prefix`` para que o
+        ``FetchClient`` siga a corrente de "próximo" e rejeite URLs que escapem
+        para outra obra.
+        """
+        from ldm_kindler.crawler.fetch import derive_template_from_chapter_url
+
+        if self.start_url:
+            try:
+                derived_template, derived_id, derived_prefix = (
+                    derive_template_from_chapter_url(self.start_url)
+                )
+            except ValueError as e:
+                raise ValueError(f"start_url inválido: {e}") from e
+
+            if not self.url_template:
+                self.url_template = derived_template
+            if self.start is None:
+                self.start = derived_id
+
+            overrides = dict(self.url_overrides or {})
+            overrides.setdefault(derived_id, self.start_url.strip())
+            self.url_overrides = overrides
+            self.story_path_prefix = derived_prefix
+            self.prefer_next_link = True
+
+        if not self.url_template:
+            raise ValueError("Informe 'url_template' ou 'start_url'.")
+        if self.start is None:
+            raise ValueError("Informe 'start' (ou 'start_url' para derivá-lo).")
         if self.end < self.start:
             raise ValueError("O capítulo final deve ser maior ou igual ao inicial")
         return self
@@ -210,7 +258,20 @@ async def _run_job(job_id: str, req: JobRequest) -> None:
         url_template=req.url_template,
         url_overrides=req.url_overrides or {},
         cache_store=cache,
+        prefer_next_link=req.prefer_next_link,
+        story_path_prefix=req.story_path_prefix,
     )
+    if req.prefer_next_link:
+        _emit(
+            job_id,
+            "INFO",
+            (
+                "Modo start_url: seguindo link 'próximo' do capítulo anterior. "
+                "Se você já rodou um crawl diferente nessa faixa, apague o cache "
+                "(botão na tela de Crawl) para evitar misturar conteúdo de outra obra."
+            ),
+            story_path_prefix=req.story_path_prefix,
+        )
 
     loop = asyncio.get_event_loop()
 
@@ -495,6 +556,61 @@ async def download_file(filename: str):
         )
     media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
     return FileResponse(path, media_type=media_type, filename=filename)
+
+
+# ── Cache de capítulos ─────────────────────────────────────────────────────────
+@app.get("/api/cache")
+async def get_cache_stats():
+    """Retorna contagem e tamanho dos diretórios de cache (html + json)."""
+    from ldm_kindler.crawler.persist import CacheStore
+
+    try:
+        store = CacheStore(Path("."))
+        return store.stats()
+    except OSError as e:
+        log_error(_log, ErrorCode.API_CACHE_OP_FAILED, "Falha ao ler cache", exc_info=e)
+        raise HTTPException(
+            status_code=500,
+            detail=api_error_body(
+                ErrorCode.API_CACHE_OP_FAILED,
+                "Não foi possível ler o estado do cache.",
+            ),
+        )
+
+
+@app.delete("/api/cache")
+async def clear_cache(kind: Optional[str] = None):
+    """Apaga o cache de capítulos.
+
+    Query string opcional ``kind=html|json|all`` (default: ``all``). Útil quando
+    o site mudou e o conteúdo já cacheado precisa ser re-baixado.
+    """
+    from ldm_kindler.crawler.persist import CacheStore
+
+    kind = (kind or "all").lower().strip()
+    if kind not in {"html", "json", "all"}:
+        raise HTTPException(
+            status_code=400,
+            detail=api_error_body(
+                ErrorCode.API_VALIDATION_FAILED,
+                "Parâmetro 'kind' inválido. Use 'html', 'json' ou 'all'.",
+            ),
+        )
+    kinds = {"html", "json"} if kind == "all" else {kind}
+    try:
+        store = CacheStore(Path("."))
+        removed = store.clear(kinds=kinds)
+        _log.info("Cache limpo (kinds=%s, removed=%s)", sorted(kinds), removed)
+        return {"removed": removed, "stats": store.stats()}
+    except OSError as e:
+        log_error(_log, ErrorCode.API_CACHE_OP_FAILED, "Falha ao limpar cache", exc_info=e)
+        raise HTTPException(
+            status_code=500,
+            detail=api_error_body(
+                ErrorCode.API_CACHE_OP_FAILED,
+                "Não foi possível limpar o cache.",
+            ),
+        )
 
 
 # ── Servir SPA em produção ─────────────────────────────────────────────────────

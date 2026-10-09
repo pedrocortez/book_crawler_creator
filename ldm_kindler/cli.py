@@ -11,7 +11,7 @@ from rich.progress import Progress
 
 from ldm_kindler.constants import BOOKS, ensure_dirs
 from ldm_kindler.errors import ErrorCode, get_logger, log_error
-from ldm_kindler.crawler.fetch import FetchClient
+from ldm_kindler.crawler.fetch import FetchClient, derive_template_from_chapter_url
 from ldm_kindler.crawler.parse import parse_chapter
 from ldm_kindler.crawler.clean import clean_html
 from ldm_kindler.crawler.persist import CacheStore
@@ -74,6 +74,15 @@ def run(
     only: Optional[str] = typer.Option(None, help="Lista de capítulos: 534,535,536"),
     range_str: Optional[str] = typer.Option(None, help="Faixa: 850-1029"),
     url_template: Optional[str] = typer.Option(None, help="Template da URL com {id}, ex.: https://site/x/capitulo-{id}"),
+    start_url: Optional[str] = typer.Option(
+        None,
+        "--start-url",
+        help=(
+            "URL de um capítulo (ex.: https://site/.../capitulo-736-noite/). "
+            "Deriva --url-template e --start automaticamente; capítulos seguintes "
+            "com slugs diferentes são descobertos via índice da obra."
+        ),
+    ),
     series_title: Optional[str] = typer.Option(None, help="Título da série para metadados/arquivo."),
     author: Optional[str] = typer.Option(None, help="Autor para metadados do EPUB."),
     cover_url: Optional[str] = typer.Option(None, help="URL da imagem de capa (opcional)"),
@@ -97,11 +106,54 @@ def run(
     base = Path('.')
     ensure_dirs(base)
 
-    # Exigir URL customizada: desabilita modo LOM
+    url_overrides = _load_url_overrides_file(url_overrides_file)
+    prefer_next_link = False
+    story_path_prefix: Optional[str] = None
+
+    # start_url tem precedência sobre defaults de start/url_template:
+    # derivamos template, id e prefixo da obra, registramos a URL exata como
+    # override e ligamos prefer_next_link para que capítulos seguintes sigam o
+    # link "próximo" da página em vez de adivinhar pelo template.
+    if start_url:
+        try:
+            derived_template, derived_id, derived_prefix = (
+                derive_template_from_chapter_url(start_url)
+            )
+        except ValueError as e:
+            log_error(
+                _log,
+                ErrorCode.CLI_START_URL_INVALID,
+                "CLI: --start-url inválido",
+                extra={"start_url": start_url},
+            )
+            raise typer.BadParameter(
+                f"[{ErrorCode.CLI_START_URL_INVALID}] --start-url inválido: {e}"
+            ) from e
+        if not url_template:
+            url_template = derived_template
+        if not range_str and not only:
+            start = derived_id
+        url_overrides.setdefault(derived_id, start_url.strip())
+        prefer_next_link = True
+        story_path_prefix = derived_prefix
+        typer.echo(
+            json.dumps(
+                {
+                    "level": "INFO",
+                    "status": "start_url_mode",
+                    "story_path_prefix": story_path_prefix,
+                    "hint": (
+                        "Se você já rodou um crawl diferente nessa faixa, "
+                        "apague o cache (ldm_kindler/cache/json) antes."
+                    ),
+                }
+            )
+        )
+
     if not url_template:
         msg = (
             f"[{ErrorCode.CLI_URL_TEMPLATE_REQUIRED}] "
-            "Informe --url-template para coletar a partir de uma fonte customizada."
+            "Informe --url-template ou --start-url para coletar a partir de uma fonte customizada."
         )
         log_error(_log, ErrorCode.CLI_URL_TEMPLATE_REQUIRED, "CLI: url-template obrigatório ausente")
         raise typer.BadParameter(msg)
@@ -109,8 +161,6 @@ def run(
     if range_str:
         start, end = parse_range(range_str)  # type: ignore
     only_list = parse_only_list(only)
-
-    url_overrides = _load_url_overrides_file(url_overrides_file)
     cache = CacheStore(base)
     fetcher = FetchClient(
         min_delay=min_delay,
@@ -119,6 +169,8 @@ def run(
         url_template=url_template,
         url_overrides=url_overrides,
         cache_store=cache,
+        prefer_next_link=prefer_next_link,
+        story_path_prefix=story_path_prefix,
     )
 
     chapter_ids: List[int]

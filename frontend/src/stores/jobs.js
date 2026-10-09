@@ -135,5 +135,25 @@ export const useJobsStore = defineStore('jobs', () => {
     return body
   }
 
-  return { jobs, loading, fetchJobs, fetchJob, createJob }
+  async function fetchCacheStats() {
+    const res = await fetch('/api/cache')
+    const body = await readJsonBody(res)
+    if (!res.ok) {
+      throw new Error(formatApiError(body, res.status, res.statusText))
+    }
+    return body
+  }
+
+  async function clearCache(kind = 'all') {
+    const res = await fetch(`/api/cache?kind=${encodeURIComponent(kind)}`, {
+      method: 'DELETE',
+    })
+    const body = await readJsonBody(res)
+    if (!res.ok) {
+      throw new Error(formatApiError(body, res.status, res.statusText))
+    }
+    return body
+  }
+
+  return { jobs, loading, fetchJobs, fetchJob, createJob, fetchCacheStats, clearCache }
 })

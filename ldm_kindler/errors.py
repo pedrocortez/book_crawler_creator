@@ -16,6 +16,7 @@ class ErrorCode:
     API_PATH_INVALID = "KM-API-003"
     API_LIBRARY_LIST_FAILED = "KM-API-004"
     API_VALIDATION_FAILED = "KM-API-005"
+    API_CACHE_OP_FAILED = "KM-API-006"
     API_INTERNAL = "KM-API-999"
 
     # Jobs em background
@@ -25,6 +26,7 @@ class ErrorCode:
     JOB_COVER_FETCH_FAILED = "KM-JOB-004"
     JOB_CHAPTER_FAILED = "KM-JOB-005"
     JOB_URL_DISCOVERY_FAILED = "KM-JOB-006"
+    JOB_START_URL_INVALID = "KM-JOB-007"
 
     # WebSocket
     WS_JOB_NOT_FOUND = "KM-WS-001"
@@ -33,6 +35,7 @@ class ErrorCode:
     # CLI (Typer)
     CLI_URL_TEMPLATE_REQUIRED = "KM-CLI-001"
     CLI_OUTPUT_FORMAT_INVALID = "KM-CLI-002"
+    CLI_START_URL_INVALID = "KM-CLI-003"
 
 
 def get_logger(name: str | None = None) -> logging.Logger:
