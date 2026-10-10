@@ -2,15 +2,13 @@ from __future__ import annotations
 
 import json
 import random
-import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 from urllib import robotparser
-from urllib.parse import urljoin, urlparse, urlunparse
+from urllib.parse import urlparse
 
 import requests
-from bs4 import BeautifulSoup
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -19,82 +17,14 @@ from tenacity import (
 )
 
 from ldm_kindler.constants import chapter_url
-from ldm_kindler.crawler.parse import extract_chapter_id_from
+from ldm_kindler.crawler.sources import GenericSource, NovelSource
+from ldm_kindler.crawler.sources.base import derive_template_from_chapter_url  # noqa: F401 (API pública)
 from ldm_kindler.errors import ErrorCode
 
 DEFAULT_HEADERS = {
     "User-Agent": "ldm-kindler/1.0 (+https://example.invalid; uso pessoal)",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
-
-CHAPTER_LINK_TEXT = re.compile(r"Capítulo\s+(\d+)", re.IGNORECASE)
-
-_CHAPTER_SLUG_RE = re.compile(r"^(cap[ií]tulo[-_])(\d+)(?:[-_].*)?$", re.IGNORECASE)
-
-
-def derive_template_from_chapter_url(url: str) -> tuple[str, int, str]:
-    """Extrai chapter_id e devolve (url_template, chapter_id, story_path_prefix).
-
-    Substitui o número do capítulo por `{id}` e descarta sufixos do slug (ex.:
-    ``capitulo-736-noite`` vira ``capitulo-{id}``). Devolve também o prefixo de
-    path da obra (tudo antes do segmento de capítulo, terminado em ``/``) para
-    que o crawler possa rejeitar respostas que escapem para outra história
-    (mesmo site, mas em outra rota — ex.: ``/story/era-dos-adeptos/``).
-
-    Exemplos:
-      >>> derive_template_from_chapter_url(
-      ...     "https://illusia.com.br/story/cdi-circulo-da-inevitabilidade/capitulo-736-noite/"
-      ... )
-      ('https://illusia.com.br/story/cdi-circulo-da-inevitabilidade/capitulo-{id}/', 736, '/story/cdi-circulo-da-inevitabilidade/')
-      >>> derive_template_from_chapter_url("https://site/cap/737/")
-      ('https://site/cap/{id}/', 737, '/cap/')
-    """
-    if not url or not isinstance(url, str):
-        raise ValueError("URL vazia ou inválida")
-
-    parsed = urlparse(url.strip())
-    if not parsed.scheme or not parsed.netloc:
-        raise ValueError(f"URL inválida (sem scheme/host): {url!r}")
-
-    segments = parsed.path.split("/")
-
-    def _story_prefix(chapter_segment_index: int) -> str:
-        before = [s for s in segments[:chapter_segment_index] if s]
-        if not before:
-            return "/"
-        return "/" + "/".join(before) + "/"
-
-    # Procura segmento no formato `capitulo-<n>[-slug]`
-    for i, seg in enumerate(segments):
-        m = _CHAPTER_SLUG_RE.match(seg)
-        if m:
-            chapter_id = int(m.group(2))
-            prefix = _story_prefix(i)
-            segments[i] = f"{m.group(1)}{{id}}"
-            new_path = "/".join(segments)
-            return (
-                urlunparse((parsed.scheme, parsed.netloc, new_path, "", "", "")),
-                chapter_id,
-                prefix,
-            )
-
-    # Fallback: segmento puramente numérico (ex.: `/cap/737/`)
-    for i, seg in enumerate(segments):
-        if seg.isdigit():
-            chapter_id = int(seg)
-            prefix = _story_prefix(i)
-            segments[i] = "{id}"
-            new_path = "/".join(segments)
-            return (
-                urlunparse((parsed.scheme, parsed.netloc, new_path, "", "", "")),
-                chapter_id,
-                prefix,
-            )
-
-    raise ValueError(
-        f"Não foi possível identificar o número do capítulo em {url!r} "
-        "(esperado segmento como 'capitulo-123' ou '/123/')."
-    )
 
 
 class RetryableHTTPError(Exception):
@@ -136,6 +66,8 @@ class FetchClient:
     # Qualquer URL (composta, descoberta ou pós-redirect) que NÃO comece com este
     # prefixo é considerada "cross-story" e rejeitada como se fosse 404.
     story_path_prefix: str | None = None
+    # Regras específicas do site (índice, id na URL...). Padrão: layout genérico.
+    source: NovelSource = field(default_factory=GenericSource)
 
     _index_cache: Dict[int, str] = field(default_factory=dict, init=False, repr=False)
     _index_loaded: bool = field(default=False, init=False, repr=False)
@@ -146,8 +78,8 @@ class FetchClient:
     def __post_init__(self):
         self.session = ThrottleSession(self.min_delay, self.max_delay)
         self._robots = None
-        if self.story_path_prefix and not self.story_path_prefix.endswith("/"):
-            self.story_path_prefix = self.story_path_prefix + "/"
+        if self.story_path_prefix:
+            self.story_path_prefix = self.source.normalize_story_prefix(self.story_path_prefix)
 
     def _belongs_to_story(self, url: str) -> bool:
         """True se a URL pertence à obra atual (ou se nenhum prefixo foi definido).
@@ -258,57 +190,14 @@ class FetchClient:
             e.response.raise_for_status()
 
     def _story_index_url(self) -> str:
-        """Deriva a página da obra: remove o sufixo -capitulo-{id} do último segmento quando existir.
-
-        Evita `.../obra-capitulo-{id}` virar só `.../story/`, que lista o site e mistura links (ex.: cap. 1).
-        """
         if not self.url_template:
             raise ValueError("url_template ausente")
-        sample = self.url_template.format(id=1)
-        parsed = urlparse(sample)
-        path = parsed.path.rstrip("/")
-        parts = [p for p in path.split("/") if p]
-        if not parts:
-            raise ValueError("path do template inválido")
-
-        last = parts[-1]
-        if re.match(r"(?i)^capitulo-\d+$", last) and len(parts) > 1:
-            parts = parts[:-1]
-        else:
-            stripped = re.sub(r"(?i)-capitulo-\d+$", "", last)
-            if stripped and stripped != last:
-                if len(parts) >= 2 and stripped == parts[-2]:
-                    parts = parts[:-1]
-                else:
-                    parts[-1] = stripped
-            elif len(parts) > 1:
-                parts = parts[:-1]
-            elif re.match(r"(?i)^capitulo-\d+$", last):
-                parts = []
-            else:
-                raise ValueError("Não foi possível derivar a URL do índice a partir do template")
-
-        if not parts:
-            new_path = "/"
-        else:
-            new_path = "/" + "/".join(parts) + "/"
-        return urlunparse((parsed.scheme, parsed.netloc, new_path, "", "", ""))
+        return self.source.story_index_url(self.url_template)
 
     def _parse_index_into_cache(self, html: str, index_url: str) -> None:
-        soup = BeautifulSoup(html, "lxml")
-        for a in soup.select("a[href]"):
-            text = a.get_text(" ", strip=True)
-            m = CHAPTER_LINK_TEXT.search(text)
-            if not m:
-                continue
-            href = a.get("href")
-            if not href:
-                continue
-            cid = int(m.group(1))
-            full = urljoin(index_url, href)
-            # Primeira ocorrência ganha (evita sidebar/rodapé sobrescrever o link certo do índice)
-            if cid not in self._index_cache:
-                self._index_cache[cid] = full
+        for cid, url in self.source.parse_index(html, index_url).items():
+            # Primeira ocorrência ganha (evita sobrescrever o link certo do índice)
+            self._index_cache.setdefault(cid, url)
 
     def _ensure_index_cache(self) -> None:
         if self._index_loaded:
@@ -484,7 +373,7 @@ class FetchClient:
             )
             self.last_failure_reasons.append(f"cross_story_blocked: {candidate}")
             return None
-        url_id = extract_chapter_id_from("", candidate)
+        url_id = self.source.chapter_id_from_url(candidate)
         if url_id is not None and url_id != chapter_id:
             print(
                 json.dumps(

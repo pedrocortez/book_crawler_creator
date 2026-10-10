@@ -43,7 +43,8 @@ Projeto em Python 3.11+ para coletar capítulos de romances da web via URL templ
 - **crawler/fetch.py** — requests com user‑agent próprio, validação de `robots.txt`, throttle (min/max delay) e backoff exponencial (429/5xx).
 - **crawler/parse.py** — extrai título, corpo, prev/next; detecta número do capítulo via regex; fallback `readability-lxml`.
 - **crawler/clean.py** — higieniza HTML para XHTML simples; normaliza espaços/quebras; adiciona `word_count`.
-- **crawler/persist.py** — cache idempotente (HTML bruto e JSON normalizado por capítulo).
+- **crawler/persist.py** — cache idempotente (HTML bruto e JSON normalizado por capítulo), isolado por site e obra.
+- **crawler/sources/** — regras de cada site (Illusia, Central Novel, genérico). Ver "Sites suportados".
 - **builder/epub.py** — monta EPUB com metadados, TOC, spine, CSS e capa.
 - **builder/cover.py** — gera capa simples via Pillow.
 - **api.py** — servidor FastAPI com endpoints REST, WebSocket de logs e serve o frontend em produção.
@@ -113,12 +114,25 @@ Acesse **http://localhost:8000**.
 
 | Método | Endpoint | Descrição |
 |---|---|---|
+| `GET` | `/api/sources` | Lista os sites suportados |
 | `POST` | `/api/jobs` | Inicia um crawl em background |
 | `GET` | `/api/jobs` | Lista todos os jobs |
 | `GET` | `/api/jobs/{id}` | Detalhe e logs de um job |
 | `WS` | `/ws/logs/{id}` | Stream de logs em tempo real |
 | `GET` | `/api/library` | Lista arquivos gerados |
 | `GET` | `/api/library/{filename}` | Download do arquivo |
+
+## Sites suportados
+
+| Fonte (`source`) | Domínio | Link de capítulo |
+|---|---|---|
+| `illusia` | illusia.com.br | `https://illusia.com.br/story/<obra>/capitulo-736-noite/` |
+| `central_novel` | centralnovel.com | `https://centralnovel.com/<obra>-capitulo-1/` |
+| `generic` | qualquer outro | template `{id}` ou link com `capitulo-<n>` |
+
+A fonte é detectada pelo domínio do link (ou escolhida no formulário / `--source`). Todas têm as mesmas funcionalidades: template `{id}`, overrides, seguir o link "próximo", descoberta pelo índice da obra e bloqueio de links de outra obra.
+
+Para adicionar um site, crie uma subclasse de `NovelSource` em `ldm_kindler/crawler/sources/` sobrescrevendo só o que difere (formato do link, página do índice, seletores) e registre-a em `sources/__init__.py`. Use `central_novel.py` como exemplo.
 
 ## Uso (CLI)
 
@@ -152,8 +166,8 @@ Todos os exemplos assumem a venv ativada.
 
 **Saídas:**
 - EPUBs/TXTs: `./build`
-- Cache HTML: `ldm_kindler/cache/html/`
-- Cache JSON: `ldm_kindler/cache/json/`
+- Cache HTML: `ldm_kindler/cache/html/<fonte>/<obra>/`
+- Cache JSON: `ldm_kindler/cache/json/<fonte>/<obra>/`
 
 ## Cache, idempotência e retomada
 - **Idempotência**: capítulos já normalizados em JSON são reutilizados sem novo fetch.
@@ -216,5 +230,5 @@ kindlemake/
 
 ## Notas
 - **Fallback de parsing**: `readability-lxml` é usado se os seletores falharem.
-- **Regeneração**: para forçar reprocessamento, remova o JSON do capítulo em `cache/json/`.
+- **Regeneração**: para forçar reprocessamento, remova o JSON do capítulo em `cache/json/<fonte>/<obra>/`.
 - **Produção**: `npm run build` gera `frontend/dist/`; o FastAPI serve como SPA estática.

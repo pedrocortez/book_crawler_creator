@@ -11,7 +11,8 @@ from rich.progress import Progress
 
 from ldm_kindler.constants import BOOKS, ensure_dirs
 from ldm_kindler.errors import ErrorCode, get_logger, log_error
-from ldm_kindler.crawler.fetch import FetchClient, derive_template_from_chapter_url
+from ldm_kindler.crawler.fetch import FetchClient
+from ldm_kindler.crawler.sources import list_sources, resolve_source
 from ldm_kindler.crawler.parse import parse_chapter
 from ldm_kindler.crawler.clean import clean_html
 from ldm_kindler.crawler.persist import CacheStore
@@ -83,6 +84,15 @@ def run(
             "com slugs diferentes são descobertos via índice da obra."
         ),
     ),
+    source_name: Optional[str] = typer.Option(
+        None,
+        "--source",
+        help=(
+            "Site de origem: "
+            + ", ".join(s.name for s in list_sources())
+            + ". Padrão: detectado pelo domínio da URL."
+        ),
+    ),
     series_title: Optional[str] = typer.Option(None, help="Título da série para metadados/arquivo."),
     author: Optional[str] = typer.Option(None, help="Autor para metadados do EPUB."),
     cover_url: Optional[str] = typer.Option(None, help="URL da imagem de capa (opcional)"),
@@ -107,6 +117,10 @@ def run(
     ensure_dirs(base)
 
     url_overrides = _load_url_overrides_file(url_overrides_file)
+    try:
+        source = resolve_source(source_name, start_url or url_template)
+    except ValueError as e:
+        raise typer.BadParameter(str(e)) from e
     prefer_next_link = False
     story_path_prefix: Optional[str] = None
 
@@ -116,9 +130,7 @@ def run(
     # link "próximo" da página em vez de adivinhar pelo template.
     if start_url:
         try:
-            derived_template, derived_id, derived_prefix = (
-                derive_template_from_chapter_url(start_url)
-            )
+            derived_template, derived_id, derived_prefix = source.derive_template(start_url)
         except ValueError as e:
             log_error(
                 _log,
@@ -142,10 +154,6 @@ def run(
                     "level": "INFO",
                     "status": "start_url_mode",
                     "story_path_prefix": story_path_prefix,
-                    "hint": (
-                        "Se você já rodou um crawl diferente nessa faixa, "
-                        "apague o cache (ldm_kindler/cache/json) antes."
-                    ),
                 }
             )
         )
@@ -161,7 +169,10 @@ def run(
     if range_str:
         start, end = parse_range(range_str)  # type: ignore
     only_list = parse_only_list(only)
-    cache = CacheStore(base)
+    cache = CacheStore(base, namespace=source.cache_namespace(url_template))
+    typer.echo(
+        json.dumps({"level": "INFO", "status": "source", "source": source.name, "cache": cache.namespace})
+    )
     fetcher = FetchClient(
         min_delay=min_delay,
         max_delay=max_delay,
@@ -171,6 +182,7 @@ def run(
         cache_store=cache,
         prefer_next_link=prefer_next_link,
         story_path_prefix=story_path_prefix,
+        source=source,
     )
 
     chapter_ids: List[int]
@@ -206,7 +218,7 @@ def run(
             cache.save_html(cid, html)
 
             typer.echo(f"[INFO] ({idx}/{total}) parse cid={cid}")
-            parsed = parse_chapter(cid, chapter_url, html)
+            parsed = parse_chapter(cid, chapter_url, html, source=source)
             # Validação de ID extraído vs esperado
             parsed_id = parsed.get("id", cid)
             if parsed_id != cid:

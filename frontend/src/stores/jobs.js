@@ -135,6 +135,15 @@ export const useJobsStore = defineStore('jobs', () => {
     return body
   }
 
+  async function fetchSources() {
+    const res = await fetch('/api/sources')
+    const body = await readJsonBody(res)
+    if (!res.ok) {
+      throw new Error(formatApiError(body, res.status, res.statusText))
+    }
+    return Array.isArray(body) ? body : []
+  }
+
   async function fetchCacheStats() {
     const res = await fetch('/api/cache')
     const body = await readJsonBody(res)
@@ -155,5 +164,5 @@ export const useJobsStore = defineStore('jobs', () => {
     return body
   }
 
-  return { jobs, loading, fetchJobs, fetchJob, createJob, fetchCacheStats, clearCache }
+  return { jobs, loading, fetchJobs, fetchJob, createJob, fetchSources, fetchCacheStats, clearCache }
 })
