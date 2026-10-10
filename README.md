@@ -56,6 +56,7 @@ cd C:\Users\pedra\Documents\workspace\kindlemake
 py -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -U pip setuptools wheel
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m playwright install chromium
 ```
 
 Instalar dependências do frontend (necessário apenas uma vez):
@@ -87,6 +88,23 @@ npm run dev
 ```
 
 Acesse **http://localhost:5173** no navegador.
+
+### Central Novel
+
+Na tela **Crawl**, selecione a fonte **Central Novel** e informe a URL da série
+ou de um capítulo. O backend abre uma janela visível do Chromium para que você
+possa concluir manualmente a verificação do site, quando solicitada. Não feche
+essa janela durante a coleta.
+
+- Somente capítulos numerados são incluídos; capítulo 0, extras e epílogos são
+  ignorados.
+- O capítulo final pode ficar vazio para que o último número seja descoberto no
+  índice.
+- Jobs dessa fonte são executados um por vez e usam cache isolado por série.
+- Não há solver de CAPTCHA, modo stealth, proxy ou fabricação/exportação de
+  cookies. Se a verificação não for concluída no prazo, o job termina com erro.
+- Use apenas para fins pessoais/educacionais, respeitando `robots.txt`, os
+  termos do site e os direitos dos autores e tradutores.
 
 ### Modo produção (frontend embutido no backend)
 

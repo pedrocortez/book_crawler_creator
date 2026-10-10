@@ -1,17 +1,34 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 
 class CacheStore:
-    def __init__(self, base_dir: Path):
+    _NAMESPACE_SEGMENT = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+    def __init__(self, base_dir: Path, namespace: str | None = None):
         self.base = base_dir
-        self.html_dir = self.base / "ldm_kindler" / "cache" / "html"
-        self.json_dir = self.base / "ldm_kindler" / "cache" / "json"
+        self.cache_root = self.base / "ldm_kindler" / "cache"
+        namespace_parts = self._validate_namespace(namespace)
+        root = self.cache_root.joinpath(*namespace_parts)
+        self.html_dir = root / "html"
+        self.json_dir = root / "json"
         self.html_dir.mkdir(parents=True, exist_ok=True)
         self.json_dir.mkdir(parents=True, exist_ok=True)
+
+    @classmethod
+    def _validate_namespace(cls, namespace: str | None) -> tuple[str, ...]:
+        if namespace is None:
+            return ()
+        if not isinstance(namespace, str) or not namespace or "\\" in namespace:
+            raise ValueError("Namespace de cache inválido")
+        parts = tuple(namespace.split("/"))
+        if not parts or any(not cls._NAMESPACE_SEGMENT.fullmatch(part) for part in parts):
+            raise ValueError("Namespace de cache inválido")
+        return parts
 
     def html_path(self, chapter_id: int) -> Path:
         return self.html_dir / f"{chapter_id}.html"
@@ -34,12 +51,16 @@ class CacheStore:
     def stats(self) -> Dict[str, Any]:
         """Tamanho e contagem de cada diretório de cache (em bytes)."""
 
-        def _measure(folder: Path) -> tuple[int, int]:
+        def _measure(kind: str) -> tuple[int, int]:
             count = 0
             size = 0
-            if folder.exists():
-                for f in folder.iterdir():
-                    if f.is_file():
+            if self.cache_root.exists():
+                for folder in self.cache_root.rglob(kind):
+                    if not folder.is_dir():
+                        continue
+                    for f in folder.iterdir():
+                        if not f.is_file():
+                            continue
                         count += 1
                         try:
                             size += f.stat().st_size
@@ -47,8 +68,8 @@ class CacheStore:
                             pass
             return count, size
 
-        html_count, html_size = _measure(self.html_dir)
-        json_count, json_size = _measure(self.json_dir)
+        html_count, html_size = _measure("html")
+        json_count, json_size = _measure("json")
         return {
             "html": {"count": html_count, "bytes": html_size},
             "json": {"count": json_count, "bytes": json_size},
@@ -64,22 +85,20 @@ class CacheStore:
         """
         kinds = kinds or {"html", "json"}
         removed: Dict[str, int] = {"html": 0, "json": 0}
-        targets: Dict[str, Path] = {}
-        if "html" in kinds:
-            targets["html"] = self.html_dir
-        if "json" in kinds:
-            targets["json"] = self.json_dir
-        for kind, folder in targets.items():
-            if not folder.exists():
+        for kind in kinds:
+            if kind not in removed or not self.cache_root.exists():
                 continue
-            for f in folder.iterdir():
-                if not f.is_file():
+            for folder in self.cache_root.rglob(kind):
+                if not folder.is_dir():
                     continue
-                try:
-                    f.unlink()
-                    removed[kind] += 1
-                except OSError:
-                    pass
+                for f in folder.iterdir():
+                    if not f.is_file():
+                        continue
+                    try:
+                        f.unlink()
+                        removed[kind] += 1
+                    except OSError:
+                        pass
         return removed
 
 

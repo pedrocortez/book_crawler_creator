@@ -10,5 +10,6 @@ pytest>=7.4
 fastapi>=0.109
 uvicorn[standard]>=0.27
 python-multipart>=0.0.6
+playwright>=1.47,<2
 
 

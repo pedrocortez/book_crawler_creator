@@ -6,6 +6,14 @@
       <form @submit.prevent="submit">
         <div class="form-grid">
           <div class="field full">
+            <label for="source">Fonte</label>
+            <select id="source" v-model="form.source">
+              <option value="generic">Site genérico</option>
+              <option value="central_novel">Central Novel</option>
+            </select>
+          </div>
+
+          <div v-if="form.source === 'generic'" class="field full">
             <label>Como fornecer a URL</label>
             <div style="display:flex; gap:1rem; flex-wrap:wrap">
               <label style="display:flex; align-items:center; gap:0.4rem; font-weight:normal">
@@ -17,7 +25,7 @@
             </div>
           </div>
 
-          <div v-if="form.url_mode === 'template'" class="field full">
+          <div v-if="form.source === 'generic' && form.url_mode === 'template'" class="field full">
             <label for="url_template">URL Template <span style="color:var(--err)">*</span></label>
             <input
               id="url_template"
@@ -27,7 +35,7 @@
             <p class="hint">Use <code>{id}</code> como marcador do número do capítulo.</p>
           </div>
 
-          <div v-else class="field full">
+          <div v-else-if="form.source === 'generic'" class="field full">
             <label for="start_url">URL de um capítulo <span style="color:var(--err)">*</span></label>
             <input
               id="start_url"
@@ -41,7 +49,20 @@
             </p>
           </div>
 
-          <div class="field" v-if="form.url_mode === 'template'">
+          <div v-else class="field full">
+            <label for="source_url">URL da Central Novel <span style="color:var(--err)">*</span></label>
+            <input
+              id="source_url"
+              v-model="form.source_url"
+              placeholder="https://centralnovel.com/series/the-beginning-after-the-end/"
+            />
+            <p class="hint">
+              Aceita a página da série ou de um capítulo. Uma janela do Chromium será
+              aberta; conclua manualmente a verificação do site, se ela aparecer.
+            </p>
+          </div>
+
+          <div class="field" v-if="form.source === 'central_novel' || form.url_mode === 'template'">
             <label for="start">Capítulo inicial</label>
             <input id="start" v-model.number="form.start" type="number" min="1" required />
           </div>
@@ -58,7 +79,17 @@
           </div>
           <div class="field">
             <label for="end">Capítulo final</label>
-            <input id="end" v-model.number="form.end" type="number" min="1" required />
+            <input
+              id="end"
+              v-model.number="form.end"
+              type="number"
+              min="1"
+              :required="form.source === 'generic'"
+              :placeholder="form.source === 'central_novel' ? 'detectar último' : ''"
+            />
+            <p v-if="form.source === 'central_novel'" class="hint">
+              Deixe vazio para detectar o último capítulo numérico do índice.
+            </p>
           </div>
 
           <div class="field">
@@ -83,7 +114,7 @@
             <input id="cover_url" v-model="form.cover_url" placeholder="https://..." />
           </div>
 
-          <details class="field full">
+          <details v-if="form.source === 'generic'" class="field full">
             <summary>Overrides de URL (opcional)</summary>
             <p class="hint mt1">
               JSON com <code>id do capítulo → URL</code> quando o template não refletir a URL real.
@@ -181,7 +212,7 @@
               {{ job.request?.series_title || 'Job' }}
             </span>
             <span style="font-size:0.8rem; color:var(--text-dim); margin-left:auto">
-              cap. {{ job.request?.start }}–{{ job.request?.end }}
+              cap. {{ job.request?.start }}–{{ job.request?.end ?? 'último' }}
             </span>
           </div>
           <div class="progress-wrap mt1">
@@ -198,7 +229,7 @@
 </template>
 
 <script setup>
-import { reactive, ref, onMounted } from 'vue'
+import { reactive, ref, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useJobsStore } from '../stores/jobs.js'
 
@@ -255,6 +286,8 @@ async function confirmClearCache(kind) {
 }
 
 const defaultForm = () => ({
+  source: 'generic',
+  source_url: '',
   url_mode: 'template',
   url_template: '',
   start_url: '',
@@ -273,6 +306,13 @@ const defaultForm = () => ({
 
 const form = reactive(defaultForm())
 
+watch(
+  () => form.source,
+  (source) => {
+    form.end = source === 'central_novel' ? null : 10
+  }
+)
+
 function reset() {
   Object.assign(form, defaultForm())
   error.value = ''
@@ -283,7 +323,8 @@ async function submit() {
   loading.value = true
   try {
     let urlOverrides
-    const raw = String(form.url_overrides_json ?? '').trim()
+    const raw =
+      form.source === 'generic' ? String(form.url_overrides_json ?? '').trim() : ''
     if (raw) {
       let parsed
       try {
@@ -303,7 +344,17 @@ async function submit() {
     const payload = { ...form }
     delete payload.url_overrides_json
     delete payload.url_mode
-    if (form.url_mode === 'start_url') {
+    if (form.source === 'central_novel') {
+      if (!String(form.source_url || '').trim()) {
+        error.value = 'Informe a URL da série ou de um capítulo da Central Novel.'
+        return
+      }
+      delete payload.url_template
+      delete payload.start_url
+      delete payload.url_overrides
+      if (!payload.end) delete payload.end
+    } else if (form.url_mode === 'start_url') {
+      delete payload.source_url
       if (!String(form.start_url || '').trim()) {
         error.value = 'Informe a URL de um capítulo.'
         return
@@ -311,6 +362,7 @@ async function submit() {
       delete payload.url_template
       if (!payload.start) delete payload.start
     } else {
+      delete payload.source_url
       delete payload.start_url
       if (!String(form.url_template || '').trim()) {
         error.value = 'Informe o URL Template.'

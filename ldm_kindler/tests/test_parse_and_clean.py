@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
-from ldm_kindler.crawler.parse import extract_chapter_id_from
+from ldm_kindler.crawler.parse import (
+    CENTRAL_NOVEL_PROFILE,
+    extract_chapter_id_from,
+    parse_chapter,
+)
 from ldm_kindler.crawler.clean import clean_html
+
+
+FIXTURES = Path(__file__).parent / "fixtures" / "central_novel"
 
 
 def test_regex_chapter_number_title():
@@ -30,5 +38,21 @@ def test_clean_basic_html():
     html = cleaned["content_html"]
     assert "script" not in html
     assert "<h2>Capítulo 1</h2>" in html
+
+
+def test_central_novel_profile_keeps_story_and_removes_page_controls():
+    source = "https://centralnovel.com/the-beginning-after-the-end-capitulo-2/"
+    html = (FIXTURES / "chapter.html").read_text(encoding="utf-8")
+
+    parsed = parse_chapter(2, source, html, profile=CENTRAL_NOVEL_PROFILE)
+    cleaned = clean_html(parsed)
+    content = cleaned["content_html"]
+
+    assert parsed["id"] == 2
+    assert "Primeiro parágrafo." in content
+    assert "Segundo parágrafo." in content
+    assert "Opções de leitura" not in content
+    assert "Compartilhar" not in content
+    assert "Publicidade" not in content
 
 

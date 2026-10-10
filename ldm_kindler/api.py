@@ -9,7 +9,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
@@ -55,6 +55,7 @@ BUILD_DIR = Path("./build")
 # ── Estado em memória ──────────────────────────────────────────────────────────
 _jobs: Dict[str, Dict[str, Any]] = {}
 _job_queues: Dict[str, asyncio.Queue] = {}
+_central_novel_lock = asyncio.Lock()
 
 
 @app.exception_handler(RequestValidationError)
@@ -99,9 +100,11 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
 class JobRequest(BaseModel):
+    source: Literal["generic", "central_novel"] = "generic"
+    source_url: Optional[str] = None
     url_template: Optional[str] = None
     start: Optional[int] = None
-    end: int
+    end: Optional[int] = None
     series_title: Optional[str] = "Livro"
     author: Optional[str] = None
     output_format: str = "epub"
@@ -155,7 +158,7 @@ class JobRequest(BaseModel):
     prefer_next_link: bool = False
 
     @model_validator(mode="after")
-    def resolve_start_url(self) -> "JobRequest":
+    def resolve_source(self) -> "JobRequest":
         """Se ``start_url`` for fornecido, deriva ``url_template`` e ``start``.
 
         Permite que o usuário cole o link de um capítulo sem ter que descobrir o
@@ -167,6 +170,23 @@ class JobRequest(BaseModel):
         para outra obra.
         """
         from ldm_kindler.crawler.fetch import derive_template_from_chapter_url
+        from ldm_kindler.crawler.sources.central_novel import (
+            CentralNovelSource,
+            CentralNovelUrlError,
+        )
+
+        if self.source == "central_novel":
+            if not self.source_url:
+                raise ValueError("Informe 'source_url' para a Central Novel.")
+            try:
+                CentralNovelSource.validate_source_url(self.source_url)
+            except CentralNovelUrlError as e:
+                raise ValueError(str(e)) from e
+            if self.start is None:
+                self.start = 1
+            if self.end is not None and self.end < self.start:
+                raise ValueError("O capítulo final deve ser maior ou igual ao inicial")
+            return self
 
         if self.start_url:
             try:
@@ -191,6 +211,8 @@ class JobRequest(BaseModel):
             raise ValueError("Informe 'url_template' ou 'start_url'.")
         if self.start is None:
             raise ValueError("Informe 'start' (ou 'start_url' para derivá-lo).")
+        if self.end is None:
+            raise ValueError("Informe 'end' para a fonte genérica.")
         if self.end < self.start:
             raise ValueError("O capítulo final deve ser maior ou igual ao inicial")
         return self
@@ -227,6 +249,28 @@ def _emit(
     _jobs[job_id].setdefault("logs", []).append(event)
 
 
+def _central_novel_error_code(exc: Exception) -> str:
+    from ldm_kindler.crawler.sources.central_novel import (
+        CentralNovelBrowserError,
+        CentralNovelChallengeTimeout,
+        CentralNovelContentError,
+        CentralNovelIndexError,
+        CentralNovelUrlError,
+    )
+
+    if isinstance(exc, CentralNovelUrlError):
+        return ErrorCode.JOB_SOURCE_URL_INVALID
+    if isinstance(exc, CentralNovelBrowserError):
+        return ErrorCode.JOB_BROWSER_UNAVAILABLE
+    if isinstance(exc, CentralNovelChallengeTimeout):
+        return ErrorCode.JOB_VERIFICATION_TIMEOUT
+    if isinstance(exc, CentralNovelIndexError):
+        return ErrorCode.JOB_INDEX_EMPTY
+    if isinstance(exc, CentralNovelContentError):
+        return ErrorCode.JOB_CONTENT_MISSING
+    return ErrorCode.JOB_UNEXPECTED
+
+
 # ── Runner do crawl em background ─────────────────────────────────────────────
 async def _run_job(job_id: str, req: JobRequest) -> None:
     """Executa crawling + build em thread separada, emitindo logs via queue."""
@@ -237,8 +281,16 @@ async def _run_job(job_id: str, req: JobRequest) -> None:
     from ldm_kindler.constants import ensure_dirs, output_filename_single, output_txt_filename_single
     from ldm_kindler.crawler.clean import clean_html
     from ldm_kindler.crawler.fetch import FetchClient
-    from ldm_kindler.crawler.parse import parse_chapter
+    from ldm_kindler.crawler.parse import (
+        CENTRAL_NOVEL_PROFILE,
+        DEFAULT_PROFILE,
+        parse_chapter,
+    )
     from ldm_kindler.crawler.persist import CacheStore
+    from ldm_kindler.crawler.sources.central_novel import (
+        CentralNovelError,
+        CentralNovelSource,
+    )
 
     _log.info("Job id=%s iniciado (capítulos %s–%s)", job_id, req.start, req.end)
 
@@ -246,39 +298,84 @@ async def _run_job(job_id: str, req: JobRequest) -> None:
     ensure_dirs(base)
     _jobs[job_id]["status"] = "running"
 
-    chapter_ids = list(range(req.start, req.end + 1))
-    total = len(chapter_ids)
     normalized_chapters: List[Dict[str, Any]] = []
-
-    cache = CacheStore(base)
-    fetcher = FetchClient(
-        min_delay=req.min_delay,
-        max_delay=req.max_delay,
-        max_retries=req.max_retries,
-        url_template=req.url_template,
-        url_overrides=req.url_overrides or {},
-        cache_store=cache,
-        prefer_next_link=req.prefer_next_link,
-        story_path_prefix=req.story_path_prefix,
-    )
-    if req.prefer_next_link:
-        _emit(
-            job_id,
-            "INFO",
-            (
-                "Modo start_url: seguindo link 'próximo' do capítulo anterior. "
-                "Se você já rodou um crawl diferente nessa faixa, apague o cache "
-                "(botão na tela de Crawl) para evitar misturar conteúdo de outra obra."
-            ),
-            story_path_prefix=req.story_path_prefix,
-        )
-
     loop = asyncio.get_event_loop()
+    central_source: CentralNovelSource | None = None
+    central_lock_acquired = False
 
-    def _blocking_fetch(cid: int, url: str):
-        return fetcher.fetch(cid, url)
+    async def _release_central_resources() -> None:
+        nonlocal central_source, central_lock_acquired
+        source_to_close = central_source
+        central_source = None
+        try:
+            if source_to_close is not None:
+                await source_to_close.close()
+        finally:
+            if central_lock_acquired:
+                _central_novel_lock.release()
+                central_lock_acquired = False
 
     try:
+        if req.source == "central_novel":
+            _emit(
+                job_id,
+                "INFO",
+                "Aguardando vaga para abrir o navegador da Central Novel.",
+                status="waiting_for_browser_slot",
+            )
+            await _central_novel_lock.acquire()
+            central_lock_acquired = True
+            central_source = CentralNovelSource(
+                req.source_url or "",
+                start=req.start or 1,
+                end=req.end,
+                min_delay=max(2.99, req.min_delay),
+                max_delay=max(2.99, req.max_delay),
+                event_callback=lambda status, message: _emit(
+                    job_id,
+                    "INFO",
+                    message,
+                    status=status,
+                ),
+            )
+            chapter_refs = await central_source.discover_chapters()
+            refs_by_id = {chapter.id: chapter for chapter in chapter_refs}
+            chapter_ids = [chapter.id for chapter in chapter_refs]
+            cache = CacheStore(base, namespace=central_source.cache_namespace)
+            fetcher = None
+        else:
+            chapter_ids = list(range(req.start or 1, (req.end or 0) + 1))
+            refs_by_id = {}
+            cache = CacheStore(base)
+            fetcher = FetchClient(
+                min_delay=req.min_delay,
+                max_delay=req.max_delay,
+                max_retries=req.max_retries,
+                url_template=req.url_template,
+                url_overrides=req.url_overrides or {},
+                cache_store=cache,
+                prefer_next_link=req.prefer_next_link,
+                story_path_prefix=req.story_path_prefix,
+            )
+            if req.prefer_next_link:
+                _emit(
+                    job_id,
+                    "INFO",
+                    (
+                        "Modo start_url: seguindo link 'próximo' do capítulo anterior. "
+                        "Se você já rodou um crawl diferente nessa faixa, apague o cache "
+                        "(botão na tela de Crawl) para evitar misturar conteúdo de outra obra."
+                    ),
+                    story_path_prefix=req.story_path_prefix,
+                )
+
+        total = len(chapter_ids)
+        _jobs[job_id]["total"] = total
+
+        def _blocking_fetch(cid: int, url: str):
+            assert fetcher is not None
+            return fetcher.fetch(cid, url)
+
         for idx, cid in enumerate(chapter_ids, start=1):
             try:
                 _emit(job_id, "INFO", f"({idx}/{total}) fetch cid={cid}", chapter=cid, progress=idx, total=total)
@@ -291,18 +388,44 @@ async def _run_job(job_id: str, req: JobRequest) -> None:
                     _jobs[job_id]["progress"] = idx
                     continue
 
-                url = fetcher.compose_url(cid)
-                html, chapter_url_effective = await loop.run_in_executor(None, _blocking_fetch, cid, url)
+                if central_source is not None:
+                    chapter_ref = refs_by_id[cid]
+                    html = await central_source.fetch_chapter(chapter_ref)
+                    chapter_url_effective = chapter_ref.url
+                else:
+                    assert fetcher is not None
+                    url = fetcher.compose_url(cid)
+                    html, chapter_url_effective = await loop.run_in_executor(
+                        None,
+                        _blocking_fetch,
+                        cid,
+                        url,
+                    )
 
                 if html is None:
-                    _emit(job_id, "WARN", f"({idx}/{total}) sem HTML cid={cid}", chapter=cid, status="skip_no_html")
+                    _emit(
+                        job_id,
+                        "WARN",
+                        f"({idx}/{total}) sem HTML cid={cid}",
+                        chapter=cid,
+                        status="skip_no_html",
+                    )
                     _jobs[job_id]["progress"] = idx
                     continue
 
                 cache.save_html(cid, html)
                 _emit(job_id, "INFO", f"({idx}/{total}) parse cid={cid}", chapter=cid)
 
-                parsed = parse_chapter(cid, chapter_url_effective, html)
+                parsed = parse_chapter(
+                    cid,
+                    chapter_url_effective,
+                    html,
+                    profile=(
+                        CENTRAL_NOVEL_PROFILE
+                        if central_source is not None
+                        else DEFAULT_PROFILE
+                    ),
+                )
                 parsed_id = parsed.get("id", cid)
                 if parsed_id != cid:
                     _emit(
@@ -324,9 +447,14 @@ async def _run_job(job_id: str, req: JobRequest) -> None:
                 _jobs[job_id]["progress"] = idx
 
             except Exception as e:
+                error_code = (
+                    _central_novel_error_code(e)
+                    if isinstance(e, CentralNovelError)
+                    else ErrorCode.JOB_CHAPTER_FAILED
+                )
                 log_error(
                     _log,
-                    ErrorCode.JOB_CHAPTER_FAILED,
+                    error_code,
                     f"Falha ao processar capítulo {cid}",
                     extra={"job_id": job_id},
                     exc_info=e,
@@ -336,11 +464,14 @@ async def _run_job(job_id: str, req: JobRequest) -> None:
                     job_id,
                     "ERROR",
                     f"Falha ao processar capítulo {cid}: {e}",
-                    error_code=ErrorCode.JOB_CHAPTER_FAILED,
+                    error_code=error_code,
                     chapter=cid,
                 )
+                await _release_central_resources()
                 await _job_queues[job_id].put({"level": "DONE", "message": "job finalizado com erro"})
                 return
+
+        await _release_central_resources()
 
         if not normalized_chapters:
             _jobs[job_id]["status"] = "error"
@@ -424,18 +555,32 @@ async def _run_job(job_id: str, req: JobRequest) -> None:
         _job_queues[job_id].put_nowait({"level": "DONE", "message": "job concluído", "filename": output_file})
 
     except Exception as e:
-        log_error(_log, ErrorCode.JOB_UNEXPECTED, "Erro inesperado no job", extra={"job_id": job_id}, exc_info=e)
+        error_code = (
+            _central_novel_error_code(e)
+            if isinstance(e, CentralNovelError)
+            else ErrorCode.JOB_UNEXPECTED
+        )
+        log_error(
+            _log,
+            error_code,
+            "Erro inesperado no job",
+            extra={"job_id": job_id},
+            exc_info=e,
+        )
         _jobs[job_id]["status"] = "error"
         _emit(
             job_id,
             "ERROR",
-            f"[{ErrorCode.JOB_UNEXPECTED}] {e}",
-            error_code=ErrorCode.JOB_UNEXPECTED,
+            f"[{error_code}] {e}",
+            error_code=error_code,
         )
+        await _release_central_resources()
         try:
             await _job_queues[job_id].put({"level": "DONE", "message": "job finalizado com erro"})
         except Exception:
             log_error(_log, ErrorCode.API_INTERNAL, "Não foi possível sinalizar fim do job na fila", extra={"job_id": job_id})
+    finally:
+        await _release_central_resources()
 
 
 # ── Endpoints REST ─────────────────────────────────────────────────────────────
@@ -446,7 +591,7 @@ async def create_job(req: JobRequest):
         "id": job_id,
         "status": "queued",
         "progress": 0,
-        "total": req.end - req.start + 1,
+        "total": (req.end - req.start + 1) if req.end is not None else 0,
         "created_at": datetime.utcnow().isoformat(),
         "request": req.model_dump(),
         "logs": [],
