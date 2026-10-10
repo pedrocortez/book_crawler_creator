@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,20 +42,10 @@ def get_book_info_for_chapter(chapter_id: int) -> tuple[int | None, str | None]:
 
 def output_filename_for_book(book: dict) -> str:
     book_num = f"{book['book']:02d}"
-    safe_title = (
-        book["title"].replace(" ", "_")
-        .replace("(", "(")
-        .replace(")", ")")
-        .replace("ã", "a")
-        .replace("â", "a")
-        .replace("ê", "e")
-        .replace("é", "e")
-        .replace("ó", "o")
-        .replace("ç", "c")
-    )
+    safe_title = sanitize_for_filename(book["title"])
     return (
         f"Lorde_dos_Misterios_Livro_{book_num}_"
-        f"{safe_title.replace('/', '_')}_(" 
+        f"{safe_title}_("
         f"{book['start']}-{book['end']}).epub"
     )
 
@@ -67,19 +58,19 @@ def output_filename(series_title: str, book: dict) -> str:
 
 
 def sanitize_for_filename(text: str) -> str:
+    normalized = unicodedata.normalize("NFKD", text)
+    ascii_only = normalized.encode("ascii", "ignore").decode("ascii")
     return (
-        text.replace(" ", "_")
+        ascii_only.replace(" ", "_")
         .replace("/", "_")
         .replace("\\", "_")
         .replace(":", "-")
-        .replace("*", "-")
+        .replace("*", "")
         .replace("?", "")
         .replace("\"", "'")
         .replace("<", "(")
         .replace(">", ")")
         .replace("|", "-")
-        .replace("ã", "a").replace("â", "a").replace("ê", "e")
-        .replace("é", "e").replace("ó", "o").replace("ç", "c")
     )
 
 

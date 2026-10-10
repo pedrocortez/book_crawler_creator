@@ -98,7 +98,7 @@ def clean_html(parsed: Dict[str, Any]) -> Dict[str, Any]:
     unwrap_spans_and_remove_attrs(content_soup)
 
     # Normaliza
-    for tag in content_soup.find_all(text=True):
+    for tag in content_soup.find_all(string=True):
         if isinstance(tag, NavigableString):
             tag.replace_with(normalize_whitespace(str(tag)))
 
