@@ -5,7 +5,7 @@ import random
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from urllib import robotparser
 from urllib.parse import urljoin, urlparse, urlunparse
 
@@ -139,6 +139,9 @@ class FetchClient:
 
     _index_cache: Dict[int, str] = field(default_factory=dict, init=False, repr=False)
     _index_loaded: bool = field(default=False, init=False, repr=False)
+    # Motivos ("status: url") das tentativas que falharam no último fetch().
+    # Permite que a API mostre no log do job por que um capítulo ficou sem HTML.
+    last_failure_reasons: List[str] = field(default_factory=list, init=False, repr=False)
 
     def __post_init__(self):
         self.session = ThrottleSession(self.min_delay, self.max_delay)
@@ -171,13 +174,44 @@ class FetchClient:
             return self._robots
         parsed = urlparse(url)
         robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
-        rp = robotparser.RobotFileParser()
+        rp = robotparser.RobotFileParser(robots_url)
+        # Não usar rp.read(): ele baixa via urllib com UA "Python-urllib", que
+        # WAFs costumam responder com 403 — e o parser trata 403 como "tudo
+        # proibido". Lemos pela nossa sessão (mesmo UA das páginas) e aplicamos
+        # a RFC 9309: 4xx → tudo liberado; 5xx/erro de rede → tudo proibido.
         try:
-            rp.set_url(robots_url)
-            rp.read()
-        except Exception:
-            # Conservador: se não conseguir ler, considera permitido apenas leitura esporádica
-            pass
+            resp = self.session.get(robots_url)
+            status = resp.status_code
+            if 200 <= status < 300:
+                rp.parse(resp.text.splitlines())
+            elif 400 <= status < 500:
+                rp.allow_all = True
+            else:
+                rp.disallow_all = True
+        except Exception as e:
+            status = None
+            rp.disallow_all = True
+            print(
+                json.dumps(
+                    {
+                        "level": "WARN",
+                        "status": "robots_fetch_failed",
+                        "url": robots_url,
+                        "error": str(e),
+                    }
+                )
+            )
+        if rp.disallow_all:
+            print(
+                json.dumps(
+                    {
+                        "level": "WARN",
+                        "status": "robots_disallow_all",
+                        "url": robots_url,
+                        "code": status,
+                    }
+                )
+            )
         self._robots = rp
         return rp
 
@@ -348,6 +382,7 @@ class FetchClient:
                     }
                 )
             )
+            self.last_failure_reasons.append(f"cross_story_blocked: {url}")
             return None
         if not self._allowed(url):
             print(
@@ -360,6 +395,7 @@ class FetchClient:
                     }
                 )
             )
+            self.last_failure_reasons.append(f"disallowed_by_robots: {url}")
             return None
         try:
             resp = self._do_fetch(url)
@@ -381,10 +417,12 @@ class FetchClient:
                         }
                     )
                 )
+                self.last_failure_reasons.append(f"cross_story_blocked: {final_url}")
                 return None
             return resp.text
         except requests.HTTPError as e:
             code = getattr(e.response, "status_code", None)
+            self.last_failure_reasons.append(f"http_{code}: {url}")
             if code != 404:
                 print(
                     json.dumps(
@@ -410,6 +448,7 @@ class FetchClient:
                     }
                 )
             )
+            self.last_failure_reasons.append(f"fetch_failed ({e}): {url}")
             return None
 
     def _try_candidate(
@@ -443,6 +482,7 @@ class FetchClient:
                     }
                 )
             )
+            self.last_failure_reasons.append(f"cross_story_blocked: {candidate}")
             return None
         url_id = extract_chapter_id_from("", candidate)
         if url_id is not None and url_id != chapter_id:
@@ -457,6 +497,7 @@ class FetchClient:
                     }
                 )
             )
+            self.last_failure_reasons.append(f"{strategy}_chapter_mismatch: {candidate}")
             return None
         print(
             json.dumps(
@@ -487,6 +528,7 @@ class FetchClient:
         """
         tried: set[str] = set()
         last_url = url
+        self.last_failure_reasons = []
 
         def _strategy_fns():
             template_fn = lambda: url

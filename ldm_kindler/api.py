@@ -295,7 +295,16 @@ async def _run_job(job_id: str, req: JobRequest) -> None:
                 html, chapter_url_effective = await loop.run_in_executor(None, _blocking_fetch, cid, url)
 
                 if html is None:
-                    _emit(job_id, "WARN", f"({idx}/{total}) sem HTML cid={cid}", chapter=cid, status="skip_no_html")
+                    reasons = list(fetcher.last_failure_reasons)
+                    detail = f" — {'; '.join(reasons)}" if reasons else ""
+                    _emit(
+                        job_id,
+                        "WARN",
+                        f"({idx}/{total}) sem HTML cid={cid}{detail}",
+                        chapter=cid,
+                        status="skip_no_html",
+                        reasons=reasons,
+                    )
                     _jobs[job_id]["progress"] = idx
                     continue
 
