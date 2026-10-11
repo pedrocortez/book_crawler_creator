@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -59,18 +60,20 @@ _job_queues: Dict[str, asyncio.Queue] = {}
 
 @app.exception_handler(RequestValidationError)
 async def request_validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    # ``ctx.error`` traz a exceção dos validadores (ValueError), que não é JSON.
+    errors = jsonable_encoder(exc.errors(), custom_encoder={Exception: str})
     log_error(
         _log,
         ErrorCode.API_VALIDATION_FAILED,
         "Validação da requisição falhou",
-        extra={"path": str(request.url.path), "errors": exc.errors()},
+        extra={"path": str(request.url.path), "errors": errors},
     )
     return JSONResponse(
         status_code=422,
         content=api_error_body(
             ErrorCode.API_VALIDATION_FAILED,
             "Dados da requisição inválidos.",
-            errors=exc.errors(),
+            errors=errors,
         ),
     )
 
@@ -116,6 +119,9 @@ class JobRequest(BaseModel):
     # número do capítulo. URLs com slugs diferentes (capitulo-737-outro) serão
     # descobertas via índice da obra ou pelo link `next` do capítulo anterior.
     start_url: Optional[str] = None
+    # Site de origem (ver GET /api/sources). Vazio ou "auto" detecta pelo
+    # domínio de start_url/url_template; sem correspondência, usa "generic".
+    source: Optional[str] = None
 
     @field_validator("url_overrides", mode="before")
     @classmethod
@@ -153,6 +159,7 @@ class JobRequest(BaseModel):
     # cliente; só servem para configurar o FetchClient).
     story_path_prefix: Optional[str] = None
     prefer_next_link: bool = False
+    cache_namespace: Optional[str] = None
 
     @model_validator(mode="after")
     def resolve_start_url(self) -> "JobRequest":
@@ -166,12 +173,15 @@ class JobRequest(BaseModel):
         ``FetchClient`` siga a corrente de "próximo" e rejeite URLs que escapem
         para outra obra.
         """
-        from ldm_kindler.crawler.fetch import derive_template_from_chapter_url
+        from ldm_kindler.crawler.sources import resolve_source
+
+        source = resolve_source(self.source, self.start_url or self.url_template)
+        self.source = source.name
 
         if self.start_url:
             try:
-                derived_template, derived_id, derived_prefix = (
-                    derive_template_from_chapter_url(self.start_url)
+                derived_template, derived_id, derived_prefix = source.derive_template(
+                    self.start_url
                 )
             except ValueError as e:
                 raise ValueError(f"start_url inválido: {e}") from e
@@ -193,6 +203,7 @@ class JobRequest(BaseModel):
             raise ValueError("Informe 'start' (ou 'start_url' para derivá-lo).")
         if self.end < self.start:
             raise ValueError("O capítulo final deve ser maior ou igual ao inicial")
+        self.cache_namespace = source.cache_namespace(self.url_template)
         return self
 
 
@@ -239,6 +250,7 @@ async def _run_job(job_id: str, req: JobRequest) -> None:
     from ldm_kindler.crawler.fetch import FetchClient
     from ldm_kindler.crawler.parse import parse_chapter
     from ldm_kindler.crawler.persist import CacheStore
+    from ldm_kindler.crawler.sources import get_source
 
     _log.info("Job id=%s iniciado (capítulos %s–%s)", job_id, req.start, req.end)
 
@@ -250,7 +262,8 @@ async def _run_job(job_id: str, req: JobRequest) -> None:
     total = len(chapter_ids)
     normalized_chapters: List[Dict[str, Any]] = []
 
-    cache = CacheStore(base)
+    source = get_source(req.source or "generic")
+    cache = CacheStore(base, namespace=req.cache_namespace)
     fetcher = FetchClient(
         min_delay=req.min_delay,
         max_delay=req.max_delay,
@@ -260,16 +273,20 @@ async def _run_job(job_id: str, req: JobRequest) -> None:
         cache_store=cache,
         prefer_next_link=req.prefer_next_link,
         story_path_prefix=req.story_path_prefix,
+        source=source,
+    )
+    _emit(
+        job_id,
+        "INFO",
+        f"Fonte: {source.label} · cache: {req.cache_namespace or '(raiz)'}",
+        source=source.name,
+        cache_namespace=req.cache_namespace,
     )
     if req.prefer_next_link:
         _emit(
             job_id,
             "INFO",
-            (
-                "Modo start_url: seguindo link 'próximo' do capítulo anterior. "
-                "Se você já rodou um crawl diferente nessa faixa, apague o cache "
-                "(botão na tela de Crawl) para evitar misturar conteúdo de outra obra."
-            ),
+            "Modo start_url: seguindo link 'próximo' do capítulo anterior.",
             story_path_prefix=req.story_path_prefix,
         )
 
@@ -311,7 +328,7 @@ async def _run_job(job_id: str, req: JobRequest) -> None:
                 cache.save_html(cid, html)
                 _emit(job_id, "INFO", f"({idx}/{total}) parse cid={cid}", chapter=cid)
 
-                parsed = parse_chapter(cid, chapter_url_effective, html)
+                parsed = parse_chapter(cid, chapter_url_effective, html, source=source)
                 parsed_id = parsed.get("id", cid)
                 if parsed_id != cid:
                     _emit(
@@ -464,6 +481,14 @@ async def create_job(req: JobRequest):
     asyncio.create_task(_run_job(job_id, req))
     _log.info("Job enfileirado id=%s", job_id)
     return {"job_id": job_id, "status": "queued"}
+
+
+@app.get("/api/sources")
+async def list_sources():
+    """Sites com suporte dedicado (o formulário usa para o seletor de fonte)."""
+    from ldm_kindler.crawler.sources import list_sources as _list_sources
+
+    return [s.describe() for s in _list_sources()]
 
 
 @app.get("/api/jobs")

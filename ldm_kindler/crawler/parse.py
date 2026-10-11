@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import TYPE_CHECKING, Any, Dict, Optional
+from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 try:
@@ -10,11 +11,8 @@ try:
 except Exception:  # pragma: no cover
     Document = None  # type: ignore
 
-
-TITLE_SELECTOR = "h1.entry-title"
-CONTENT_SELECTOR = "div.entry-content"
-PREV_SELECTOR = "a.prev, a[rel=prev]"
-NEXT_SELECTOR = "a.next, a[rel=next]"
+if TYPE_CHECKING:  # pragma: no cover
+    from ldm_kindler.crawler.sources.base import NovelSource
 
 
 CHAPTER_REGEX_TITLE = re.compile(r"cap[íi]tulo\s*(\d+)", re.IGNORECASE)
@@ -31,18 +29,41 @@ def extract_chapter_id_from(title: str, url: str) -> int | None:
     return None
 
 
-def parse_chapter(expected_id: int, url: str, html: str) -> Dict[str, Any]:
+def _nav_href(soup: BeautifulSoup, selector: str, base_url: str) -> Optional[str]:
+    el = soup.select_one(selector)
+    href = (el.get("href") or "").strip() if el else ""
+    # Temas costumam deixar o botão sem destino ("#", "#/next/") no último capítulo.
+    if not href or href.startswith("#"):
+        return None
+    return urljoin(base_url, href)
+
+
+def parse_chapter(
+    expected_id: int,
+    url: str,
+    html: str,
+    source: Optional["NovelSource"] = None,
+) -> Dict[str, Any]:
+    """Extrai título, conteúdo e links anterior/próximo usando os seletores da fonte."""
+    if source is None:
+        from ldm_kindler.crawler.sources import GenericSource
+
+        source = GenericSource()
+
     soup = BeautifulSoup(html, "lxml")
-    title_el = soup.select_one(TITLE_SELECTOR)
-    content_el = soup.select_one(CONTENT_SELECTOR)
+    title_el = soup.select_one(source.title_selector)
+    content_el = soup.select_one(source.content_selector)
 
     title_text = title_el.get_text(strip=True) if title_el else f"Capítulo {expected_id}"
-    prev_href = (soup.select_one(PREV_SELECTOR) or {}).get("href") if soup.select_one(PREV_SELECTOR) else None
-    next_href = (soup.select_one(NEXT_SELECTOR) or {}).get("href") if soup.select_one(NEXT_SELECTOR) else None
+    prev_href = _nav_href(soup, source.prev_selector, url)
+    next_href = _nav_href(soup, source.next_selector, url)
 
-    chapter_id = extract_chapter_id_from(title_text, url) or expected_id
+    chapter_id = source.extract_chapter_id(title_text, url) or expected_id
 
     if content_el is not None:
+        for sel in source.content_junk_selectors:
+            for junk in content_el.select(sel):
+                junk.decompose()
         content_html = str(content_el)
     else:
         # Fallback com readability

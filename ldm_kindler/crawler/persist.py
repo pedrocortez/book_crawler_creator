@@ -4,12 +4,27 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from ldm_kindler.crawler.sources.base import sanitize_namespace
+
 
 class CacheStore:
-    def __init__(self, base_dir: Path):
+    """Cache HTML/JSON por capítulo.
+
+    ``namespace`` (ex.: ``central_novel/centralnovel.com-series-obra``) separa
+    obras e sites em subpastas para que o capítulo 1 de uma obra não seja
+    reaproveitado em outra. Sem namespace, usa a raiz (layout legado). ``stats``
+    e ``clear`` consideram tudo abaixo da pasta do store, recursivamente.
+    """
+
+    def __init__(self, base_dir: Path, namespace: Optional[str] = None):
         self.base = base_dir
-        self.html_dir = self.base / "ldm_kindler" / "cache" / "html"
-        self.json_dir = self.base / "ldm_kindler" / "cache" / "json"
+        self.namespace = sanitize_namespace(namespace) if namespace else None
+        root = self.base / "ldm_kindler" / "cache"
+        self.html_dir = root / "html"
+        self.json_dir = root / "json"
+        if self.namespace:
+            self.html_dir = self.html_dir.joinpath(*self.namespace.split("/"))
+            self.json_dir = self.json_dir.joinpath(*self.namespace.split("/"))
         self.html_dir.mkdir(parents=True, exist_ok=True)
         self.json_dir.mkdir(parents=True, exist_ok=True)
 
@@ -38,7 +53,7 @@ class CacheStore:
             count = 0
             size = 0
             if folder.exists():
-                for f in folder.iterdir():
+                for f in folder.rglob("*"):
                     if f.is_file():
                         count += 1
                         try:
@@ -72,7 +87,7 @@ class CacheStore:
         for kind, folder in targets.items():
             if not folder.exists():
                 continue
-            for f in folder.iterdir():
+            for f in folder.rglob("*"):
                 if not f.is_file():
                     continue
                 try:

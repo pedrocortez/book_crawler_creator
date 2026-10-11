@@ -6,6 +6,17 @@
       <form @submit.prevent="submit">
         <div class="form-grid">
           <div class="field full">
+            <label for="source">Site</label>
+            <select id="source" v-model="form.source">
+              <option value="auto">Detectar pelo link</option>
+              <option v-for="s in sources" :key="s.name" :value="s.name">{{ s.label }}</option>
+            </select>
+            <p class="hint">
+              Define como achar o índice da obra, o link "próximo" e o conteúdo do capítulo.
+            </p>
+          </div>
+
+          <div class="field full">
             <label>Como fornecer a URL</label>
             <div style="display:flex; gap:1rem; flex-wrap:wrap">
               <label style="display:flex; align-items:center; gap:0.4rem; font-weight:normal">
@@ -32,7 +43,7 @@
             <input
               id="start_url"
               v-model="form.start_url"
-              placeholder="https://site.com/.../capitulo-736-noite/"
+              :placeholder="startUrlPlaceholder"
             />
             <p class="hint">
               Cole o link de um capítulo. O número é detectado e o template é deduzido
@@ -198,7 +209,7 @@
 </template>
 
 <script setup>
-import { reactive, ref, onMounted } from 'vue'
+import { computed, reactive, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useJobsStore } from '../stores/jobs.js'
 
@@ -210,6 +221,20 @@ const cacheStats = ref(null)
 const cacheBusy = ref(false)
 const cacheMsg = ref('')
 const cacheErr = ref(false)
+const sources = ref([])
+
+const startUrlPlaceholder = computed(() => {
+  const selected = sources.value.find((s) => s.name === form.source)
+  return selected?.example_url || 'https://site.com/.../capitulo-736-noite/'
+})
+
+async function loadSources() {
+  try {
+    sources.value = await store.fetchSources()
+  } catch (e) {
+    console.warn('fetchSources:', e)
+  }
+}
 
 function formatBytes(n) {
   if (!n) return '0 B'
@@ -255,6 +280,7 @@ async function confirmClearCache(kind) {
 }
 
 const defaultForm = () => ({
+  source: 'auto',
   url_mode: 'template',
   url_template: '',
   start_url: '',
@@ -317,6 +343,7 @@ async function submit() {
         return
       }
     }
+    if (payload.source === 'auto') delete payload.source
     if (urlOverrides) payload.url_overrides = urlOverrides
     if (!payload.author) delete payload.author
     if (!payload.cover_url) delete payload.cover_url
@@ -338,5 +365,6 @@ function progressPct(job) {
 onMounted(() => {
   store.fetchJobs()
   loadCacheStats()
+  loadSources()
 })
 </script>
